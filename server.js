@@ -4,7 +4,7 @@ const connectDB = require('./src/config/db.config')
 
 app.listen(process.env.PORT, () => {
     connectDB()
-    console.log("School backend server is started at ", process.env.PORT)
+    console.log("School backend server is running at PORT", process.env.PORT)
 })
 
 app.get('/', (req, res) => {
