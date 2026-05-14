@@ -13,5 +13,8 @@ router.get('/academic-years', MasterDataController.fetchAcademicYears);
 // Grade Routes
 router.post('/grades', MasterDataController.addGrade);
 router.get('/grades', MasterDataController.fetchGrades);
+router.post('/sections', MasterDataController.addSection);
+router.post('/seats', MasterDataController.addSeatInventory);
+router.post('/rooms', MasterDataController.addRoom);
 
 module.exports = router;

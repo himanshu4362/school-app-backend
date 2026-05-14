@@ -1,4 +1,7 @@
 const MasterDataService = require('./masterData.service');
+const Section = require('../../models/section.model');
+const SeatInventory = require('../../models/seatInventory.model');
+const Room = require('../../models/room.model');
 
 const addAcademicYear = async (req, res) => {
     try {
@@ -40,9 +43,98 @@ const fetchGrades = async (req, res) => {
     }
 };
 
+// 1. Create Physical Room
+const addRoom = async (req, res) => {
+    try {
+        const result = await Room.create({ schoolId: req.user.schoolId, ...req.body });
+        res.status(201).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+// 2. Create Logical Section (With Physical Constraints)
+const addSection = async (req, res) => {
+    try {
+        const schoolId = req.user.schoolId;
+        const { academicYearId, gradeId, roomId, name, targetCapacity } = req.body;
+
+        // 🟢 VALIDATION: Fetch the physical room to check capacity
+        const room = await Room.findOne({ _id: roomId, schoolId });
+        if (!room) {
+            throw new Error("Validation Error: Selected Room does not exist.");
+        }
+
+        if (targetCapacity > room.capacity) {
+            throw new Error(`Infrastructure Error: Target capacity (${targetCapacity}) exceeds the physical capacity of Room ${room.roomNumber} (${room.capacity} seats).`);
+        }
+
+        const result = await Section.create({
+            schoolId,
+            academicYearId,
+            gradeId,
+            roomId,
+            name,
+            targetCapacity
+        });
+
+        res.status(201).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const addSeatInventory = async (req, res) => {
+    try {
+        const schoolId = req.user.schoolId;
+        // Notice: We do NOT extract totalCapacity from req.body anymore
+        const { academicYearId, gradeId, sectionId, allowSpillover, quotas } = req.body;
+
+        // 🟢 1. FETCH THE SINGLE SOURCE OF TRUTH
+        const section = await Section.findOne({ _id: sectionId, schoolId });
+        if (!section) {
+            throw new Error("Validation Error: Section not found.");
+        }
+
+        // The exact capacity defined when the section was assigned to a physical room
+        const enforcedTotalCapacity = section.targetCapacity;
+
+        // 🟢 2. VALIDATE THE QUOTA MATH 
+        const sumOfQuotas =
+            (quotas?.GENERAL?.capacity || 0) +
+            (quotas?.OBC?.capacity || 0) +
+            (quotas?.SC?.capacity || 0) +
+            (quotas?.ST?.capacity || 0) +
+            (quotas?.EWS?.capacity || 0) +
+            (quotas?.OTHER?.capacity || 0);
+
+        if (sumOfQuotas !== enforcedTotalCapacity) {
+            throw new Error(`Quota Error: The sum of category quotas (${sumOfQuotas}) must perfectly match the Section's physical capacity (${enforcedTotalCapacity}).`);
+        }
+
+        // 🟢 3. CREATE THE INVENTORY 
+        const result = await SeatInventory.create({
+            schoolId,
+            academicYearId,
+            gradeId,
+            sectionId,
+            totalCapacity: enforcedTotalCapacity, // Backend sets it automatically!
+            allowSpillover,
+            quotas
+        });
+
+        res.status(201).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
+    addRoom,
     addAcademicYear,
     fetchAcademicYears,
     addGrade,
+    addSection,
+    addSeatInventory,
     fetchGrades
 };

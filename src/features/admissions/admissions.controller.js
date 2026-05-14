@@ -1,75 +1,65 @@
 const AdmissionsService = require('./admissions.service');
+const Application = require('../../models/application.model');
 
-const addLead = async (req, res) => {
+const createApplication = async (req, res) => {
     try {
         const schoolId = req.user.schoolId;
-        const result = await AdmissionsService.createLead(schoolId, req.body);
+        const userId = req.user.id;
+        
+        const result = await AdmissionsService.submitApplication(schoolId, req.body, userId);
+        
         res.status(201).json({ success: true, data: result });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
     }
 };
 
-const fetchLeads = async (req, res) => {
+const triggerEnrollment = async (req, res) => {
     try {
         const schoolId = req.user.schoolId;
-        const result = await AdmissionsService.getLeads(schoolId);
+        const userId = req.user.id;
+        const applicationId = req.params.id;
+
+        const result = await AdmissionsService.enrollStudent(schoolId, applicationId, userId);
+        
         res.status(200).json({ success: true, data: result });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
     }
 };
 
-const modifyLead = async (req, res) => {
+const updateApplicationStatus = async (req, res) => {
     try {
         const schoolId = req.user.schoolId;
-        const leadId = req.params.id;
-        const result = await AdmissionsService.updateLead(schoolId, leadId, req.body);
-        res.status(200).json({ success: true, data: result });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
+        const applicationId = req.params.id;
+        const { status, remarks } = req.body;
 
-// ... (keep existing lead controllers) ...
+        const application = await Application.findOne({ _id: applicationId, schoolId });
+        if (!application) throw new Error("Application not found");
 
-const requestUploadUrl = async (req, res) => {
-    try {
-        const { fileName, fileType } = req.body;
-        if (!fileName || !fileType) throw new Error("fileName and fileType are required");
+        const oldStatus = application.status;
+        application.status = status;
+        
+        // Add to audit log
+        if (!application.decisionLog) application.decisionLog = [];
+        application.decisionLog.push({
+            previousStatus: oldStatus,
+            newStatus: status,
+            changedBy: req.user.id,
+            remarks: remarks || `Status manually updated to ${status}`
+        });
 
-        const result = await AdmissionsService.getS3UploadUrl(fileName, fileType);
-        res.status(200).json({ success: true, data: result });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
+        if (status === 'APPROVED') application.lifecycle.approvedAt = new Date();
 
-const submitFinalApplication = async (req, res) => {
-    try {
-        const schoolId = req.user.schoolId;
-        const result = await AdmissionsService.submitApplication(schoolId, req.body);
-        res.status(201).json({ success: true, data: result, message: "Application submitted successfully" });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-};
-
-const fetchApplications = async (req, res) => {
-    try {
-        const schoolId = req.user.schoolId;
-        const result = await AdmissionsService.getApplications(schoolId);
-        res.status(200).json({ success: true, data: result });
+        await application.save();
+        res.status(200).json({ success: true, data: application });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
     }
 };
 
 module.exports = {
-    addLead,
-    fetchLeads,
-    modifyLead,
-    requestUploadUrl,
-    submitFinalApplication,
-    fetchApplications
+    createApplication,
+    updateApplicationStatus,
+    triggerEnrollment
 };
