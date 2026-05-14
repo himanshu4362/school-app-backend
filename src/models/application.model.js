@@ -1,18 +1,6 @@
 const mongoose = require('mongoose');
 
-// --- SUB-SCHEMAS ---
-
-const GuardianSchema = new mongoose.Schema({
-  relation: { type: String, enum: ['father', 'mother', 'guardian', 'other'], required: true },
-  fullName: { type: String, required: true },
-  mobile: { type: String, required: true },
-  email: { type: String },
-  occupation: { type: String },
-  annualIncome: { type: Number },
-  isPrimaryContact: { type: Boolean, default: false },
-  linkedUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' } 
-});
-
+//SUB-SCHEMAS 
 const DocumentSchema = new mongoose.Schema({
   documentType: { 
     type: String, 
@@ -102,7 +90,11 @@ const applicationSchema = new mongoose.Schema({
   },
 
   // 4. GUARDIANS (With Unique Mobile Validation added in pre-save)
-  guardians: [GuardianSchema],
+  guardians: [{
+      guardianId: { type: mongoose.Schema.Types.ObjectId, ref: 'Guardian', required: true },
+      relation: { type: String, enum: ['father', 'mother', 'guardian', 'other'] },
+      isPrimaryContact: { type: Boolean, default: false }
+  }],
   
   // 5. ACADEMIC HISTORY & ADMISSION EXAMS
   academicHistory: {
