@@ -5,6 +5,8 @@ const { protect } = require('../../middlewares/auth.middleware');
 
 router.use(protect); 
 
+
+router.get('/upload-url', AdmissionsController.getUploadUrl);
 // Create Application
 router.post('/applications', AdmissionsController.createApplication);
 // Add this right above your /enroll route

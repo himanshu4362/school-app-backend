@@ -55,6 +55,22 @@ class SeatEngine {
 
         throw new Error(`Capacity Error: No available seats in the ${category} quota, and no spillover seats available.`);
     }
+
+    static async blockSeat(schoolId, sectionId, category, session) {
+        const quotaPath = `quotas.${category}`;
+        // Increment blockedSeats atomically
+        const result = await SeatInventory.findOneAndUpdate(
+            { 
+                schoolId, 
+                sectionId,
+                $expr: { $gt: [ { $subtract: [ `$${quotaPath}.capacity`, { $add: [ `$${quotaPath}.blockedSeats`, `$${quotaPath}.consumedSeats` ] } ] }, 0 ] }
+            },
+            { $inc: { [`${quotaPath}.blockedSeats`]: 1 } },
+            { new: true, session }
+        );
+        if (!result) throw new Error("Reservation Failed: No seats available to block.");
+        return true;
+    }
 }
 
 module.exports = SeatEngine;

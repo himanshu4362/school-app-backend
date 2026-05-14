@@ -1,39 +1,29 @@
 class WorkflowEngine {
-    // The strict matrix of legal state transitions for an Application
     static APPLICATION_TRANSITIONS = {
-        'DRAFT': ['SUBMITTED', 'WITHDRAWN'],
-        'SUBMITTED': ['UNDER_REVIEW', 'DOCUMENT_PENDING', 'APPROVED', 'REJECTED'],
-        'DOCUMENT_PENDING': ['REUPLOAD_REQUIRED', 'SUBMITTED'],
-        'REUPLOAD_REQUIRED': ['SUBMITTED'],
-        'UNDER_REVIEW': ['INTERVIEW_SCHEDULED', 'TEST_SCHEDULED', 'WAITLISTED', 'APPROVED', 'REJECTED'],
-        'APPROVED': ['ENROLLED', 'WITHDRAWN'], // Notice: APPROVED can ONLY go to ENROLLED or WITHDRAWN
-        'WAITLISTED': ['APPROVED', 'REJECTED'],
-        'ENROLLED': [], // Terminal state for the application
-        'REJECTED': ['ARCHIVED'],
-        'WITHDRAWN': ['ARCHIVED'],
-        'ARCHIVED': []
+        // [Target Status]: ['Allowed Roles']
+        'DRAFT': { allowed: ['PARENT', 'ADMIN'], next: ['SUBMITTED'] },
+        'SUBMITTED': { allowed: ['PARENT', 'ADMIN', 'ADMISSION_OFFICER'], next: ['UNDER_REVIEW', 'DOCUMENT_PENDING'] },
+        'UNDER_REVIEW': { allowed: ['ADMISSION_OFFICER', 'PRINCIPAL'], next: ['APPROVED', 'REJECTED', 'WAITLISTED'] },
+        'APPROVED': { allowed: ['PRINCIPAL'], next: ['ENROLLED', 'WITHDRAWN'] }, // ONLY Principal can approve
+        'ENROLLED': { allowed: ['FINANCE', 'SYSADMIN'], next: [] } 
     };
 
-    /**
-     * Validates if a state transition is legally allowed.
-     * @param {String} entityType - e.g., 'APPLICATION'
-     * @param {String} currentStatus - e.g., 'SUBMITTED'
-     * @param {String} targetStatus - e.g., 'APPROVED'
-     */
-    static validateTransition(entityType, currentStatus, targetStatus) {
+    static validateTransition(entityType, currentStatus, targetStatus, actorRole) {
         if (entityType === 'APPLICATION') {
-            const allowedNextStates = this.APPLICATION_TRANSITIONS[currentStatus];
+            const stateConfig = this.APPLICATION_TRANSITIONS[currentStatus];
+            if (!stateConfig) throw new Error(`Workflow Error: Invalid state '${currentStatus}'.`);
             
-            if (!allowedNextStates) {
-                throw new Error(`Workflow Error: Unknown current state '${currentStatus}'.`);
+            // 1. Check Legal Transition
+            if (!stateConfig.next.includes(targetStatus)) {
+                throw new Error(`Workflow Violation: Cannot transition from '${currentStatus}' to '${targetStatus}'.`);
             }
 
-            if (!allowedNextStates.includes(targetStatus)) {
-                throw new Error(`Workflow Violation: Cannot transition Application from '${currentStatus}' directly to '${targetStatus}'.`);
+            // 2. Check Authority Matrix
+            const targetConfig = this.APPLICATION_TRANSITIONS[targetStatus];
+            if (targetConfig && !targetConfig.allowed.includes(actorRole)) {
+                throw new Error(`Authority Error: Role '${actorRole}' is not authorized to transition application to '${targetStatus}'.`);
             }
         }
-        
-        // Future: Add STUDENT_TRANSITIONS, INVOICE_TRANSITIONS, etc.
         return true;
     }
 }

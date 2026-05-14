@@ -55,6 +55,29 @@ class AdmissionsUseCase {
                 });
             }
 
+            // 🟢 NEW: File Ownership Security Check
+            if (payload.documents && payload.documents.length > 0) {
+                for (const doc of payload.documents) {
+                    // Prevent path traversal and enforce tenant isolation
+                    // A valid fileKey from our S3 service MUST start with the schoolId
+                    // Change this line:
+                    if (!doc.fileKey.startsWith(`schools/${schoolId}/`)) {
+                        throw new Error(`Security Violation: File ${doc.fileKey} does not belong to this tenant.`);
+                    }
+                }
+            }
+
+            // 🟢 NEW: Execute Document Requirement Engine
+            if (payload.admissionType === 'transfer' || payload.admissionType === 'fresh') {
+                DocumentEngine.validateSubmission(
+                    payload.admissionType,
+                    payload.studentProfile?.category || 'GENERAL',
+                    payload.documents || []
+                );
+            }
+
+            // ... proceed to ApplicationRepo.create() ...
+
             const newApplication = await ApplicationRepo.create({
                 schoolId,
                 applicationNumber,
@@ -68,56 +91,6 @@ class AdmissionsUseCase {
 
             await session.commitTransaction();
             return newApplication;
-        } catch (error) {
-            await session.abortTransaction();
-            throw error;
-        } finally {
-            session.endSession();
-        }
-    }
-
-    static async enrollStudent(schoolId, applicationId, actorId) {
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
-        try {
-            // 1. Fetch
-            const app = await ApplicationRepo.findById(schoolId, applicationId, session);
-            if (!app) throw new Error("Application not found.");
-
-            // 2. Enforce Workflow Law
-            WorkflowEngine.validateTransition('APPLICATION', app.status, 'ENROLLED');
-
-            // 3. Consume Seat Quota
-            const seatResult = await SeatEngine.consumeSeat(schoolId, app.preferredSectionId, app.studentProfile.category, session);
-
-            // 4. Generate Student ID
-            const year = new Date().getFullYear().toString();
-            const enrollmentNumber = await IdentityEngine.generateSequence(schoolId, 'STU', year, session);
-
-            // 5. Create Student
-            const newStudent = await StudentRepo.create({
-                schoolId,
-                admissionApplicationId: app._id,
-                enrollmentNumber,
-                academicYearId: app.academicYearId,
-                gradeId: app.appliedGradeId,
-                sectionId: app.preferredSectionId,
-                profile: app.studentProfile
-            }, session);
-
-            // 6. Freeze Application
-            await ApplicationRepo.markEnrolled(app._id, newStudent._id, session);
-
-            // 7. Audit Logging
-            await AuditEngine.log(schoolId, 'APPLICATION', app._id, 'ENROLLED', actorId, {
-                studentId: newStudent._id,
-                consumedCategory: seatResult.consumedCategory
-            }, session);
-
-            await session.commitTransaction();
-            return { applicationNumber: app.applicationNumber, enrollmentNumber };
-
         } catch (error) {
             await session.abortTransaction();
             throw error;
@@ -155,6 +128,169 @@ class AdmissionsUseCase {
 
             await session.commitTransaction();
             return app;
+        } catch (error) {
+            await session.abortTransaction();
+            throw error;
+        } finally {
+            session.endSession();
+        }
+    }
+
+    /**
+     * Saves a partial draft. Bypasses strict validation.
+     */
+    static async saveDraft(schoolId, applicationId, payload, actorId) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        try {
+            let app;
+            if (applicationId) {
+                app = await ApplicationRepo.findById(schoolId, applicationId, session);
+                if (!app || app.status !== 'DRAFT') throw new Error("Only drafts can be updated this way.");
+
+                // Update fields
+                Object.assign(app, payload);
+            } else {
+                // Generate a temporary draft number
+                const draftNumber = `DRAFT-${Date.now()}`;
+                app = await ApplicationRepo.create({
+                    schoolId,
+                    applicationNumber: draftNumber,
+                    createdBy: actorId,
+                    status: 'DRAFT',
+                    ...payload
+                }, session);
+            }
+            let completionScore = 0;
+            const totalWeights = 100;
+
+            if (payload.studentProfile?.firstName && payload.studentProfile?.dob) completionScore += 25;
+            if (payload.guardians && payload.guardians.length > 0) completionScore += 25;
+            if (payload.address && payload.address.current?.pincode) completionScore += 20;
+            if (payload.academicHistory?.schoolName) completionScore += 10;
+            if (payload.documents && payload.documents.length > 0) completionScore += 20;
+
+            // Calculate completion percentage
+            // (Mock logic: count filled keys vs expected keys)
+            app.lifecycle.completionPercentage = Math.min(completionScore, totalWeights);
+            app.lifecycle.lastSavedAt = new Date();
+
+            await app.save({ session });
+            await session.commitTransaction();
+            return app;
+        } catch (error) {
+            await session.abortTransaction();
+            throw error;
+        } finally {
+            session.endSession();
+        }
+    }
+
+    static async enrollStudent(schoolId, applicationId, actorId, actorRole) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        try {
+            const app = await ApplicationRepo.findById(schoolId, applicationId, session);
+            if (!app) throw new Error("Application not found.");
+
+            // 1. Workflow & Authority Check
+            WorkflowEngine.validateTransition('APPLICATION', app.status, 'ENROLLED', actorRole);
+
+            // 2. Consume Seat (Moves from Blocked -> Consumed)
+            const seatResult = await SeatEngine.consumeSeat(schoolId, app.preferredSectionId, app.studentProfile.category, session);
+
+            // 3. Identity Engine: Generate STU ID and Roll Number
+            const year = new Date().getFullYear().toString();
+            const enrollmentNumber = await IdentityEngine.generateSequence(schoolId, 'STU', year, session);
+            // 🟢 NEW: Scoped strictly by Year AND Section
+            const rollNumberSequence = await IdentityEngine.generateSequence(
+                schoolId,
+                `ROLL_${app.academicYearId}_${app.preferredSectionId}`,
+                year,
+                session
+            ); const rollNumber = rollNumberSequence.split('-').pop(); // e.g., gets '0012' from the string
+
+            // 4. Create Living Student
+            const newStudent = await StudentRepo.create({
+                schoolId,
+                admissionApplicationId: app._id,
+                enrollmentNumber,
+                rollNumber: parseInt(rollNumber, 10),
+                academicYearId: app.academicYearId,
+                gradeId: app.appliedGradeId,
+                sectionId: app.preferredSectionId,
+                profile: app.studentProfile,
+                guardianLinks: app.guardians // Inherit normalized guardians
+            }, session);
+
+            // 5. Freeze Application
+            await ApplicationRepo.markEnrolled(schoolId, app._id, newStudent._id, session);
+
+            // 6. Immutably Audit the Transformation
+            await AuditEngine.log(schoolId, 'APPLICATION', app._id, 'ENROLLED', actorId, {
+                studentId: newStudent._id,
+                rollNumber: newStudent.rollNumber,
+                consumedCategory: seatResult.consumedCategory
+            }, session);
+
+            await session.commitTransaction();
+
+            return { applicationNumber: app.applicationNumber, enrollmentNumber, rollNumber: newStudent.rollNumber };
+
+        } catch (error) {
+            await session.abortTransaction();
+            throw error;
+        } finally {
+            session.endSession();
+        }
+    }
+
+    /**
+     * Executes the Document Verification Workflow (Admin Only)
+     */
+    static async verifyDocument(schoolId, applicationId, documentId, targetStatus, remarks, actorId, actorRole) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        try {
+            const app = await ApplicationRepo.findById(schoolId, applicationId, session);
+            if (!app) throw new Error("Application not found.");
+
+            // 1. Locate the specific document
+            const document = app.documents.id(documentId);
+            if (!document) throw new Error("Document not found in this application.");
+
+            // 2. Validate Authority (Only Admission Officers/Principals can verify)
+            if (!['ADMISSION_OFFICER', 'PRINCIPAL', 'ADMIN'].includes(actorRole)) {
+                throw new Error("Authority Error: You do not have permission to verify documents.");
+            }
+
+            // 3. Update Document State & Versioning Data
+            const oldStatus = document.status;
+            document.status = targetStatus; // e.g., 'VERIFIED' or 'REJECTED'
+            document.verifiedBy = actorId;
+            document.verifiedAt = new Date();
+            if (targetStatus === 'REJECTED') {
+                document.rejectionReason = remarks;
+                app.status = 'DOCUMENT_PENDING'; // Kick the whole app back to pending
+            } else {
+                document.verificationRemarks = remarks;
+            }
+
+            await app.save({ session });
+
+            // 4. Audit Engine: True Snapshot Logging
+            await AuditEngine.log(schoolId, 'DOCUMENT', documentId, `DOCUMENT_${targetStatus}`, actorId, {
+                applicationId: app._id,
+                documentType: document.documentType,
+                before: { status: oldStatus },
+                after: { status: targetStatus, remarks }
+            }, session);
+
+            await session.commitTransaction();
+            return document;
         } catch (error) {
             await session.abortTransaction();
             throw error;
