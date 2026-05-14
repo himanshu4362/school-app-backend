@@ -28,7 +28,12 @@ const createApplication = async (req, res) => {
 
 const triggerEnrollment = async (req, res) => {
     try {
-        const result = await AdmissionsUseCase.enrollStudent(req.user.schoolId, req.params.id, req.user.id);
+        const result = await AdmissionsUseCase.enrollStudent(
+            req.user.schoolId, 
+            req.params.id, 
+            req.user.id,
+            req.user.role
+        );
         res.status(200).json({ success: true, data: result });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
@@ -37,19 +42,24 @@ const triggerEnrollment = async (req, res) => {
 
 const updateApplicationStatus = async (req, res) => {
     try {
+        // Safety check to ensure Postman sends JSON correctly!
+        if (!req.body || Object.keys(req.body).length === 0) {
+            throw new Error("Request body is missing. Did you select 'JSON' in Postman?");
+        }
+
         const result = await AdmissionsUseCase.updateStatus(
             req.user.schoolId, 
             req.params.id, 
             req.body.status, 
             req.body.remarks, 
-            req.user.id
+            req.user.id,
+            req.user.role // 🟢 WE MUST PASS THE ROLE TO THE ENGINE
         );
         res.status(200).json({ success: true, data: result });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
     }
 };
-
 module.exports = {
     createApplication,
     triggerEnrollment,

@@ -1,11 +1,10 @@
 class WorkflowEngine {
     static APPLICATION_TRANSITIONS = {
-        // [Target Status]: ['Allowed Roles']
-        'DRAFT': { allowed: ['PARENT', 'ADMIN'], next: ['SUBMITTED'] },
-        'SUBMITTED': { allowed: ['PARENT', 'ADMIN', 'ADMISSION_OFFICER'], next: ['UNDER_REVIEW', 'DOCUMENT_PENDING'] },
-        'UNDER_REVIEW': { allowed: ['ADMISSION_OFFICER', 'PRINCIPAL'], next: ['APPROVED', 'REJECTED', 'WAITLISTED'] },
-        'APPROVED': { allowed: ['PRINCIPAL'], next: ['ENROLLED', 'WITHDRAWN'] }, // ONLY Principal can approve
-        'ENROLLED': { allowed: ['FINANCE', 'SYSADMIN'], next: [] } 
+        'DRAFT': { allowed: ['PARENT', 'ADMIN', 'SUPER_ADMIN'], next: ['SUBMITTED'] },
+        'SUBMITTED': { allowed: ['PARENT', 'ADMIN', 'ADMISSION_OFFICER', 'SUPER_ADMIN'], next: ['UNDER_REVIEW', 'DOCUMENT_PENDING'] },
+        'UNDER_REVIEW': { allowed: ['ADMISSION_OFFICER', 'PRINCIPAL', 'SUPER_ADMIN'], next: ['APPROVED', 'REJECTED', 'WAITLISTED'] },
+        'APPROVED': { allowed: ['PRINCIPAL', 'SUPER_ADMIN'], next: ['ENROLLED', 'WITHDRAWN'] }, 
+        'ENROLLED': { allowed: ['FINANCE', 'SYSADMIN', 'SUPER_ADMIN'], next: [] } 
     };
 
     static validateTransition(entityType, currentStatus, targetStatus, actorRole) {

@@ -28,17 +28,17 @@ class DocumentEngine {
     static validateSubmission(admissionType, category, uploadedDocuments) {
         const requiredDocs = this.getRequiredList(admissionType, category);
         
-        // Filter to only documents that are actually uploaded/submitted
         const validUploads = uploadedDocuments.filter(doc => 
             ['SUBMITTED', 'VERIFIED'].includes(doc.status) && doc.fileKey
         ).map(doc => doc.documentType);
 
         const missingDocs = requiredDocs.filter(req => !validUploads.includes(req));
 
-        if (missingDocs.length > 0) {
-            throw new Error(`Document Validation Error: Missing mandatory documents for ${admissionType} (${category}): ${missingDocs.join(', ')}`);
-        }
-        return true;
+        // 🟢 Return an object instead of throwing a fatal error
+        return {
+            isValid: missingDocs.length === 0,
+            missingDocs: missingDocs
+        };
     }
 }
 

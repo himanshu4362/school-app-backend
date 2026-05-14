@@ -19,9 +19,10 @@ class BaseRepository {
         return await this.model.findOne(safeQuery).session(session);
     }
 
-    async create(schoolId, data, session = null) {
-        if (!schoolId) throw new Error("CRITICAL SECURITY: Cannot create document without schoolId.");
-        const document = new this.model({ ...data, schoolId });
+    async create(data, session = null) {
+        // Extract schoolId directly from the data payload
+        if (!data.schoolId) throw new Error("CRITICAL SECURITY: Cannot create document without schoolId.");
+        const document = new this.model(data);
         return await document.save({ session });
     }
 }

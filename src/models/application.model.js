@@ -160,12 +160,13 @@ applicationSchema.pre('save', function() { // 🟢 Removed 'next' here!
     }
   }
 
-  // 2. GUARDIAN VALIDATION: Check for duplicate mobiles inside the same application
+  // 2. GUARDIAN VALIDATION: Check for duplicate guardian records
   if (this.guardians && this.guardians.length > 0) {
-    const mobiles = this.guardians.map(g => g.mobile);
-    const uniqueMobiles = new Set(mobiles);
-    if (uniqueMobiles.size !== mobiles.length) {
-      throw new Error('Validation Error: Duplicate guardian mobile numbers are not allowed.');
+    // We now check for duplicate guardianIds instead of mobiles
+    const guardianIds = this.guardians.map(g => g.guardianId.toString());
+    const uniqueIds = new Set(guardianIds);
+    if (uniqueIds.size !== guardianIds.length) {
+      throw new Error('Validation Error: The same guardian cannot be linked multiple times.');
     }
     
     // Check exactly one primary contact

@@ -16,4 +16,4 @@ class ApplicationRepository extends BaseRepository {
     }
 }
 
-module.exports = ApplicationRepository;
+module.exports = new ApplicationRepository();

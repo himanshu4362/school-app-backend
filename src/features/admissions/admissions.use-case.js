@@ -10,13 +10,15 @@ const IdentityEngine = require('../../domain/identity.engine');
 const WorkflowEngine = require('../../domain/workflow.engine');
 const SeatEngine = require('../../domain/seat.engine');
 const AuditEngine = require('../../domain/audit.engine');
+const DocumentEngine = require('../../domain/document.engine');
 
 class AdmissionsUseCase {
 
     static async submitApplication(schoolId, payload, actorId) {
         const session = await mongoose.startSession();
         session.startTransaction();
-
+        let finalStatus = 'SUBMITTED';
+        
         try {
             if (payload.studentProfile && payload.studentProfile.nationalIdEncrypted) {
                 // Ensure you have added `findOne` to your ApplicationRepo!
@@ -76,15 +78,28 @@ class AdmissionsUseCase {
                 );
             }
 
-            // ... proceed to ApplicationRepo.create() ...
+            let finalStatus = 'SUBMITTED';
+            
+            if (payload.admissionType === 'transfer' || payload.admissionType === 'fresh') {
+                const docValidation = DocumentEngine.validateSubmission(
+                    payload.admissionType,
+                    payload.studentProfile?.category || 'GENERAL',
+                    payload.documents || []
+                );
 
-            const newApplication = await ApplicationRepo.create({
+                // If documents are missing, we don't crash. We put it in PENDING state!
+                if (!docValidation.isValid) {
+                    finalStatus = 'DOCUMENT_PENDING';
+                }
+            }
+
+           const newApplication = await ApplicationRepo.create({
                 schoolId,
                 applicationNumber,
                 createdBy: actorId,
                 ...payload,
                 guardians: normalizedGuardians,
-                status: 'SUBMITTED',
+                status: finalStatus, // <--- Uses SUBMITTED or DOCUMENT_PENDING
             }, session);
 
             await AuditEngine.log(schoolId, 'APPLICATION', newApplication._id, 'CREATED', actorId, { applicationNumber }, session);
@@ -99,7 +114,7 @@ class AdmissionsUseCase {
         }
     }
 
-    static async updateStatus(schoolId, applicationId, targetStatus, remarks, actorId) {
+    static async updateStatus(schoolId, applicationId, targetStatus, remarks, actorId, actorRole) {
         const session = await mongoose.startSession();
         session.startTransaction();
 
@@ -107,8 +122,7 @@ class AdmissionsUseCase {
             const app = await ApplicationRepo.findById(schoolId, applicationId, session);
             if (!app) throw new Error("Application not found.");
 
-            // 1. Enforce Legal State Transition (e.g. SUBMITTED -> APPROVED)
-            WorkflowEngine.validateTransition('APPLICATION', app.status, targetStatus);
+            WorkflowEngine.validateTransition('APPLICATION', app.status, targetStatus, actorRole);
 
             const oldStatus = app.status;
 
