@@ -13,6 +13,25 @@ const addAcademicYear = async (req, res) => {
     }
 };
 
+const getRoomMetadata = async (req, res) => {
+    try {
+        // We reach into the Mongoose schema to get the enum values
+        const roomTypes = Room.schema.path('roomType').enumValues;
+        
+        // We can also format them for the UI (e.g., "STANDARD_CLASSROOM" -> "Standard Classroom")
+        const formattedTypes = roomTypes.map(type => ({
+            value: type,
+            label: type.split('_').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+            ).join(' ')
+        }));
+
+        res.status(200).json({ success: true, data: formattedTypes });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 const fetchAcademicYears = async (req, res) => {
     try {
         const schoolId = req.user.schoolId;
@@ -129,6 +148,33 @@ const addSeatInventory = async (req, res) => {
     }
 };
 
+const fetchRooms = async (req, res) => {
+    try {
+        const result = await Room.find({ schoolId: req.user.schoolId }).sort({ roomNumber: 1 });
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const fetchSections = async (req, res) => {
+    try {
+        const result = await Section.find({ schoolId: req.user.schoolId }).sort({ name: 1 });
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const fetchSeatInventories = async (req, res) => {
+    try {
+        const result = await SeatInventory.find({ schoolId: req.user.schoolId });
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     addRoom,
     addAcademicYear,
@@ -136,5 +182,9 @@ module.exports = {
     addGrade,
     addSection,
     addSeatInventory,
-    fetchGrades
+    getRoomMetadata,
+    fetchGrades,
+    fetchRooms,
+    fetchSections,
+    fetchSeatInventories 
 };

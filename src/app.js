@@ -19,6 +19,4 @@ app.use('/api/auth', authRoutes)
 app.use('/api/master-data', masterDataRoutes);
 app.use('/api/admissions', admissionsRoutes);
 
-
-
 module.exports = app;
