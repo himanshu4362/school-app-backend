@@ -7,17 +7,13 @@ router.use(protect);
 
 
 router.get('/upload-url', AdmissionsController.getUploadUrl);
-// Create Application
 router.post('/applications', AdmissionsController.createApplication);
-// Add this right above your /enroll route
 router.patch('/applications/:id/status', AdmissionsController.updateApplicationStatus);
-// Trigger Atomic Enrollment Transaction
 router.post('/applications/:id/enroll', AdmissionsController.triggerEnrollment);
 router.post('/leads', AdmissionsController.captureLead);
+router.get('/leads/metadata', AdmissionsController.getLeadMetadata);
 router.get('/leads', AdmissionsController.fetchLeads);
 router.patch('/leads/:id/status', AdmissionsController.updateLeadStatus);
-
-
 
 
 module.exports = router;

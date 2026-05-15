@@ -1,4 +1,5 @@
 const AdmissionsUseCase = require('./admissions.use-case');
+const Lead = require('../../models/lead.model');
 const { generatePresignedUrl } = require('../../utils/s3Service');
 
 const getUploadUrl = async (req, res) => {
@@ -100,6 +101,26 @@ const updateLeadStatus = async (req, res) => {
     }
 };
 
+const getLeadMetadata = async (req, res) => {
+    try {
+        const statuses = Lead.schema.path('status').enumValues;
+        const sources = Lead.schema.path('source').enumValues;
+        
+        // Formatter: "follow_up" -> "Follow Up"
+        const formatLabel = (str) => str.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+        res.status(200).json({
+            success: true,
+            data: {
+                statuses: statuses.map(s => ({ value: s, label: formatLabel(s) })),
+                sources: sources.map(s => ({ value: s, label: formatLabel(s) }))
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     createApplication,
     triggerEnrollment,
@@ -107,5 +128,6 @@ module.exports = {
     getUploadUrl,
     captureLead,
     fetchLeads,
-    updateLeadStatus
+    updateLeadStatus,
+    getLeadMetadata
 };

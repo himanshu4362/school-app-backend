@@ -33,9 +33,9 @@ class AdmissionsUseCase {
         return lead;
     }
 
-    static async fetchLeads(schoolId, queryParams) {
+    static async fetchLeads (schoolId, queryParams) {
         const { status, search, assignedTo, page = 1, limit = 20 } = queryParams;
-        
+
         // Base security query
         const query = { schoolId };
 
@@ -80,7 +80,7 @@ class AdmissionsUseCase {
         }
 
         lead.status = newStatus;
-        
+
         // Log the transition in the timeline
         lead.activities.push({
             action: 'STATUS_UPDATED',
@@ -96,7 +96,7 @@ class AdmissionsUseCase {
         const session = await mongoose.startSession();
         session.startTransaction();
         let finalStatus = 'SUBMITTED';
-        
+
         try {
             if (payload.studentProfile && payload.studentProfile.nationalIdEncrypted) {
                 // Ensure you have added `findOne` to your ApplicationRepo!
@@ -157,7 +157,7 @@ class AdmissionsUseCase {
             }
 
             let finalStatus = 'SUBMITTED';
-            
+
             if (payload.admissionType === 'transfer' || payload.admissionType === 'fresh') {
                 const docValidation = DocumentEngine.validateSubmission(
                     payload.admissionType,
@@ -171,7 +171,7 @@ class AdmissionsUseCase {
                 }
             }
 
-           const newApplication = await ApplicationRepo.create({
+            const newApplication = await ApplicationRepo.create({
                 schoolId,
                 applicationNumber,
                 createdBy: actorId,
@@ -228,9 +228,7 @@ class AdmissionsUseCase {
         }
     }
 
-    /**
-     * Saves a partial draft. Bypasses strict validation.
-     */
+    // Saves a partial draft. Bypasses strict validation.
     static async saveDraft(schoolId, applicationId, payload, actorId) {
         const session = await mongoose.startSession();
         session.startTransaction();
