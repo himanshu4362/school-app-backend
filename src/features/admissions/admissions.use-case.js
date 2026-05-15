@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Lead = require('../../models/lead.model');
 
 // --- REPOSITORIES (Data Access) ---
 const ApplicationRepo = require('../../repositories/application.repository');
@@ -13,6 +14,83 @@ const AuditEngine = require('../../domain/audit.engine');
 const DocumentEngine = require('../../domain/document.engine');
 
 class AdmissionsUseCase {
+
+    static async captureLead(schoolId, leadData, userId) {
+        // Initial activity log
+        const initialActivity = {
+            action: 'LEAD_CREATED',
+            notes: `Lead captured via ${leadData.source || 'walk_in'}`,
+            performedBy: userId
+        };
+
+        const lead = new Lead({
+            ...leadData,
+            schoolId,
+            activities: [initialActivity]
+        });
+
+        await lead.save();
+        return lead;
+    }
+
+    static async fetchLeads(schoolId, queryParams) {
+        const { status, search, assignedTo, page = 1, limit = 20 } = queryParams;
+        
+        // Base security query
+        const query = { schoolId };
+
+        if (status) query.status = status;
+        if (assignedTo) query.assignedTo = assignedTo;
+        if (search) {
+            query.$or = [
+                { parentName: { $regex: search, $options: 'i' } },
+                { mobile: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const skip = (page - 1) * limit;
+
+        const [leads, total] = await Promise.all([
+            Lead.find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .populate('interestedClassId', 'name') // Pull grade name
+                .populate('assignedTo', 'firstName lastName'), // Pull owner name
+            Lead.countDocuments(query)
+        ]);
+
+        return {
+            leads,
+            pagination: {
+                total,
+                page: parseInt(page),
+                pages: Math.ceil(total / limit)
+            }
+        };
+    }
+
+    static async updateLeadStatus(schoolId, leadId, newStatus, remarks, userId) {
+        const lead = await Lead.findOne({ _id: leadId, schoolId });
+        if (!lead) throw new Error("Lead not found.");
+
+        const allowedNextStates = VALID_TRANSITIONS[lead.status];
+        if (!allowedNextStates.includes(newStatus)) {
+            throw new Error(`Invalid CRM Workflow: Cannot move lead from '${lead.status}' to '${newStatus}'.`);
+        }
+
+        lead.status = newStatus;
+        
+        // Log the transition in the timeline
+        lead.activities.push({
+            action: 'STATUS_UPDATED',
+            notes: `Moved to ${newStatus}. ${remarks ? 'Remarks: ' + remarks : ''}`,
+            performedBy: userId
+        });
+
+        await lead.save();
+        return lead;
+    }
 
     static async submitApplication(schoolId, payload, actorId) {
         const session = await mongoose.startSession();
@@ -313,5 +391,14 @@ class AdmissionsUseCase {
         }
     }
 }
+
+// STATUS FLOW VALIDATION MACHINE (Rule #4)
+const VALID_TRANSITIONS = {
+    new: ['contacted', 'closed'],
+    contacted: ['follow_up', 'converted', 'closed'],
+    follow_up: ['converted', 'closed', 'contacted'], // Allowing slip back to contacted if parent goes cold
+    converted: [], // Terminal state
+    closed: ['new', 'contacted'] // Re-opening a dead lead
+};
 
 module.exports = AdmissionsUseCase;

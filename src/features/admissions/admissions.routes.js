@@ -13,4 +13,11 @@ router.post('/applications', AdmissionsController.createApplication);
 router.patch('/applications/:id/status', AdmissionsController.updateApplicationStatus);
 // Trigger Atomic Enrollment Transaction
 router.post('/applications/:id/enroll', AdmissionsController.triggerEnrollment);
+router.post('/leads', AdmissionsController.captureLead);
+router.get('/leads', AdmissionsController.fetchLeads);
+router.patch('/leads/:id/status', AdmissionsController.updateLeadStatus);
+
+
+
+
 module.exports = router;

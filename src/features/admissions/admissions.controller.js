@@ -60,9 +60,52 @@ const updateApplicationStatus = async (req, res) => {
         res.status(400).json({ success: false, message: error.message });
     }
 };
+
+// --- NEW CRM CONTROLLERS ---
+
+const captureLead = async (req, res) => {
+    try {
+        const result = await AdmissionsUseCase.captureLead(req.user.schoolId, req.body, req.user.id);
+        res.status(201).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const fetchLeads = async (req, res) => {
+    try {
+        // Pass the entire req.query for filters & pagination
+        const result = await AdmissionsUseCase.fetchLeads(req.user.schoolId, req.query);
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const updateLeadStatus = async (req, res) => {
+    try {
+        const { status, remarks } = req.body;
+        if (!status) throw new Error("Status is required.");
+
+        const result = await AdmissionsUseCase.updateLeadStatus(
+            req.user.schoolId, 
+            req.params.id, 
+            status, 
+            remarks, 
+            req.user.id
+        );
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     createApplication,
     triggerEnrollment,
     updateApplicationStatus,
-    getUploadUrl
+    getUploadUrl,
+    captureLead,
+    fetchLeads,
+    updateLeadStatus
 };
