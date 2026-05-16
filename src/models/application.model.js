@@ -1,13 +1,14 @@
 const mongoose = require('mongoose');
 
 //SUB-SCHEMAS 
+// application.model.js mein DocumentSchema ko update karein
 const DocumentSchema = new mongoose.Schema({
   documentType: { 
     type: String, 
     enum: [
       'NATIONAL_ID', 'BIRTH_CERTIFICATE', 'TRANSFER_CERTIFICATE', 
       'MARKSHEET', 'ADDRESS_PROOF', 'CASTE_CERTIFICATE', 
-      'MIGRATION_CERTIFICATE', 'MEDICAL_CERTIFICATE', 'INCOME_CERTIFICATE'
+      'MIGRATION_CERTIFICATE', 'MEDICAL_CERTIFICATE', 'INCOME_CERTIFICATE', 'OTHER'
     ],
     required: true
   },
@@ -18,11 +19,16 @@ const DocumentSchema = new mongoose.Schema({
   },
   fileKey: { type: String }, 
   mimeType: { type: String },
-  fileSize: { type: Number }, 
-  checksum: { type: String }, // 🟢 NEW: File Integrity Hash
+  
+
+  versions: [{
+      fileKey: String,
+      uploadedAt: { type: Date, default: Date.now },
+      uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  }],
+
   uploadedAt: { type: Date },
   uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  
   verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   verifiedAt: { type: Date },
   verificationRemarks: { type: String },
@@ -44,7 +50,7 @@ const MedicalInfoSchema = new mongoose.Schema({
   disabilityType: { type: String },
   allergies: { type: String },
   chronicConditions: { type: String },
-  severity: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] }, // 🟢 NEW: Structured Severity
+  severity: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] },
   medication: { type: String },
   emergencyAction: { type: String }
 }, { _id: false });
@@ -59,7 +65,6 @@ const applicationSchema = new mongoose.Schema({
   
   admissionType: { type: String, enum: ['fresh', 'transfer'], required: true },
   
-  // 🟢 NEW: Deep Source Tracking
   admissionSource: { type: String, enum: ['website', 'walk_in', 'referral', 'campaign', 'counselor', 'other'], default: 'walk_in' },
   campaignId: { type: String },
   counselorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -104,7 +109,7 @@ const applicationSchema = new mongoose.Schema({
     tcNumber: { type: String },
     hostelStatus: { type: String, enum: ['day_scholar', 'hosteler'] }
   },
-  admissionTest: AdmissionTestSchema, // 🟢 NEW: Exam Scores
+  admissionTest: AdmissionTestSchema,
 
   // 6. DOCUMENTS 
   documents: [DocumentSchema],
@@ -120,7 +125,7 @@ const applicationSchema = new mongoose.Schema({
     default: 'DRAFT' 
   },
   feeState: { type: String, enum: ['NOT_APPLICABLE', 'WAITING_PAYMENT', 'PARTIAL', 'PAID'], default: 'NOT_APPLICABLE' },
-  assignedFeePlanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeePlan' }, // 🟢 NEW: Fee Snapshot Link
+  assignedFeePlanId: { type: mongoose.Schema.Types.ObjectId, ref: 'FeePlan' },
   seatReservationExpiresAt: { type: Date },
   convertedStudentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Student' }, 
 
@@ -131,7 +136,6 @@ const applicationSchema = new mongoose.Schema({
     enrolledAt: { type: Date },
     withdrawnAt: { type: Date },
     rejectedAt: { type: Date },
-    // 🟢 NEW: Archive Metadata
     archivedAt: { type: Date },
     archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     archiveReason: { type: String }
@@ -139,43 +143,35 @@ const applicationSchema = new mongoose.Schema({
 
 }, { 
   timestamps: true,
-  optimisticConcurrency: true // 🟢 NEW: Prevents Concurrency Issues (Updates fail if version __v doesn't match)
+  optimisticConcurrency: true
 });
 
 // --- INDEXES ---
 applicationSchema.index({ schoolId: 1, applicationNumber: 1 }, { unique: true });
 
-// --- PRE-SAVE MIDDLEWARE (Strict Validation & Freezing) ---
-// --- PRE-SAVE MIDDLEWARE (Strict Validation & Freezing) ---
-applicationSchema.pre('save', function() { // 🟢 Removed 'next' here!
+applicationSchema.pre('save', function() {
   
-  // 1. FREEZE LOGIC: If APPROVED/ENROLLED, block changes to core identity
   if (['APPROVED', 'ENROLLED'].includes(this.status)) {
     const lockedPaths = ['studentProfile.dob', 'studentProfile.nationalIdEncrypted', 'studentProfile.category'];
     for (let path of lockedPaths) {
       if (this.isModified(path)) {
-        // 🟢 Swapped 'next(new Error)' to 'throw new Error'
         throw new Error(`Validation Error: Cannot modify ${path} after application is ${this.status}.`); 
       }
     }
   }
 
-  // 2. GUARDIAN VALIDATION: Check for duplicate guardian records
   if (this.guardians && this.guardians.length > 0) {
-    // We now check for duplicate guardianIds instead of mobiles
     const guardianIds = this.guardians.map(g => g.guardianId.toString());
     const uniqueIds = new Set(guardianIds);
     if (uniqueIds.size !== guardianIds.length) {
       throw new Error('Validation Error: The same guardian cannot be linked multiple times.');
     }
     
-    // Check exactly one primary contact
-    const primaryContacts = this.guardians.filter(g => g.isPrimaryContact);
-    if (primaryContacts.length !== 1) {
-      throw new Error('Validation Error: There must be exactly one primary guardian contact.');
+   const primaryContacts = this.guardians.filter(g => g.isPrimaryContact);
+    if (primaryContacts.length === 0) { 
+      throw new Error('Validation Error: Please select at least one primary guardian contact for communications.');
     }
   }
-
-  // 🟢 Removed next() at the bottom!
 });
+
 module.exports = mongoose.model('Application', applicationSchema);

@@ -22,7 +22,7 @@ class SeatEngine {
                 }
             },
             { $inc: { [consumedField]: 1 } },
-            { new: true, session }
+            { returnDocument: 'after',  session }
         );
 
         if (updatedInventory) {
@@ -45,7 +45,7 @@ class SeatEngine {
                     }
                 },
                 { $inc: { "quotas.GENERAL.consumedSeats": 1 } },
-                { new: true, session }
+                { returnDocument: 'after', session }
             );
 
             if (spilloverInventory) {
@@ -66,7 +66,7 @@ class SeatEngine {
                 $expr: { $gt: [ { $subtract: [ `$${quotaPath}.capacity`, { $add: [ `$${quotaPath}.blockedSeats`, `$${quotaPath}.consumedSeats` ] } ] }, 0 ] }
             },
             { $inc: { [`${quotaPath}.blockedSeats`]: 1 } },
-            { new: true, session }
+            { returnDocument: 'after', session }
         );
         if (!result) throw new Error("Reservation Failed: No seats available to block.");
         return true;

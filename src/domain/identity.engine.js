@@ -15,7 +15,7 @@ class IdentityEngine {
         const counter = await Counter.findOneAndUpdate(
             { schoolId, sequenceName },
             { $inc: { sequenceValue: 1 } },
-            { new: true, upsert: true, session } // upsert creates it if it doesn't exist yet
+            { returnDocument: 'after', upsert: true, session } // upsert creates it if it doesn't exist yet
         );
 
         // Format: APP-2026-0001

@@ -1,4 +1,5 @@
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+// s3Service.js
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const s3Client = new S3Client({
@@ -9,10 +10,14 @@ const s3Client = new S3Client({
     }
 });
 
-const generatePresignedUrl = async (schoolId, fileName, fileType) => {
+// 🟢 Folder Structure: schools/{schoolId}/applications/{studentName}_{appId}/documents/
+const generatePresignedUrl = async (schoolId, fileName, fileType, studentName = 'Unknown', applicationId = 'New') => {
+    // S3 ke liye strings ko safe banaya (spaces hta kar underscores lagaye)
+    const safeStudentName = studentName.replace(/[^a-zA-Z0-9]/g, '_');
     const uniqueFileName = `${Date.now()}-${fileName.replace(/\s+/g, '-')}`;
     
-    const fileKey = `schools/${schoolId}/admissions/documents/${uniqueFileName}`;
+    // 🟢 PERFECT FOLDER NAMING RULE
+    const fileKey = `schools/${schoolId}/applications/${safeStudentName}_${applicationId}/documents/${uniqueFileName}`;
     
     const command = new PutObjectCommand({
         Bucket: process.env.AWS_S3_BUCKET_NAME,
@@ -25,4 +30,12 @@ const generatePresignedUrl = async (schoolId, fileName, fileType) => {
     return { uploadUrl, fileKey };
 };
 
-module.exports = { generatePresignedUrl };
+const getPresignedDownloadUrl = async (fileKey) => {
+    const command = new GetObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET_NAME,
+        Key: fileKey,
+    });
+    return await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+};
+
+module.exports = { generatePresignedUrl, getPresignedDownloadUrl };
