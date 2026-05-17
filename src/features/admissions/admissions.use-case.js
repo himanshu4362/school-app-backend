@@ -34,7 +34,7 @@ class AdmissionsUseCase {
         return lead;
     }
 
-    static async fetchLeads (schoolId, queryParams) {
+    static async fetchLeads(schoolId, queryParams) {
         const { status, search, assignedTo, page = 1, limit = 20 } = queryParams;
 
         // Base security query
@@ -99,7 +99,7 @@ class AdmissionsUseCase {
 
         if (status && status !== 'ALL') query.status = status;
         if (gradeId && gradeId !== 'ALL') query.appliedGradeId = gradeId;
-        
+
         // Note: Searching nested objects requires specific syntax
         if (search) {
             query.$or = [
@@ -174,7 +174,7 @@ class AdmissionsUseCase {
                 });
             }
 
-            // 🟢 NEW: File Ownership Security Check
+            //  NEW: File Ownership Security Check
             if (payload.documents && payload.documents.length > 0) {
                 for (const doc of payload.documents) {
                     // Prevent path traversal and enforce tenant isolation
@@ -186,7 +186,7 @@ class AdmissionsUseCase {
                 }
             }
 
-            // 🟢 NEW: Execute Document Requirement Engine
+            //  NEW: Execute Document Requirement Engine
             if (payload.admissionType === 'transfer' || payload.admissionType === 'fresh') {
                 DocumentEngine.validateSubmission(
                     payload.admissionType,
@@ -231,48 +231,67 @@ class AdmissionsUseCase {
         }
     }
 
-   static async updateStatus(schoolId, applicationId, targetStatus, remarks, actorId, actorRole) {
+    static async updateStatus(schoolId, applicationId, targetStatus, remarks, actorId, actorRole) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
         try {
-            // Find application without session
-            const app = await ApplicationRepo.findById(schoolId, applicationId);
+            const app = await ApplicationRepo.findById(schoolId, applicationId, session);
+            if (app.status === 'ENROLLED') {
+                throw new Error('Application already enrolled.');
+            }
+            if (app.status !== 'APPROVED') {
+                throw new Error('Application must be APPROVED before enrollment.');
+            }
             if (!app) throw new Error("Application not found.");
 
-            // 🟢 CRITICAL FIX: Bypass WorkflowEngine strictly for 'DOCUMENT_PENDING'
             if (typeof WorkflowEngine !== 'undefined' && WorkflowEngine.validateTransition) {
-                // Agar application already DOCUMENT_PENDING me thi, toh use aage badhne do bina roke
                 if (app.status !== 'DOCUMENT_PENDING') {
                     WorkflowEngine.validateTransition('APPLICATION', app.status, targetStatus, actorRole);
                 }
             }
 
             const oldStatus = app.status;
-
-            // Update Application State
             app.status = targetStatus;
-            
-            if (!app.lifecycle) {
-                app.lifecycle = {};
+
+            if (!app.lifecycle) app.lifecycle = {};
+            if (targetStatus === 'APPROVED') app.lifecycle.approvedAt = new Date();
+
+            //  FIXED: SEAT ENGINE INTEGRATION (Using app instead of payload, and passing gradeId directly)
+            const studentCategory = app.studentProfile?.category || 'GENERAL';
+
+            if (targetStatus === 'APPROVED' && oldStatus !== 'APPROVED') {
+                // We pass appliedGradeId because seats are managed per Grade during admission
+                await SeatEngine.blockSeat(schoolId, app.academicYearId, app.appliedGradeId, studentCategory, session);
             }
-            
-            if (targetStatus === 'APPROVED') {
-                app.lifecycle.approvedAt = new Date();
+            else if (['REJECTED', 'WITHDRAWN', 'EXPIRED'].includes(targetStatus) && oldStatus === 'APPROVED') {
+                await SeatEngine.releaseSeat(
+                    schoolId,
+                    app.academicYearId,
+                    app.appliedGradeId,
+                    studentCategory,
+                    'BLOCKED',
+                    session
+                );
             }
 
-            // Save directly without session
-            await app.save();
+            await app.save({ session });
 
-            // Immutably log the status change
             if (typeof AuditEngine !== 'undefined' && AuditEngine.log) {
                 await AuditEngine.log(schoolId, 'APPLICATION', app._id, 'STATUS_CHANGED', actorId, {
                     oldStatus,
                     newStatus: targetStatus,
                     remarks: remarks || `Status transitioned to ${targetStatus}`
-                });
+                }, session);
             }
 
+            await session.commitTransaction();
             return app;
         } catch (error) {
-            throw error; 
+            await session.abortTransaction();
+            throw error;
+        } finally {
+            session.endSession();
         }
     }
 
@@ -333,69 +352,101 @@ class AdmissionsUseCase {
             const app = await ApplicationRepo.findById(schoolId, applicationId, session);
             if (!app) throw new Error("Application not found.");
 
-            // 1. Workflow & Authority Check
-            WorkflowEngine.validateTransition('APPLICATION', app.status, 'ENROLLED', actorRole);
+            if (app.status === 'ENROLLED') {
+                throw new Error("Application is already enrolled. Duplicate enrollment prevented.");
+            }
+            if (app.status !== 'APPROVED') {
+                throw new Error("Application must be APPROVED before final enrollment.");
+            }
 
-            // 2. Consume Seat (Moves from Blocked -> Consumed)
-            const seatResult = await SeatEngine.consumeSeat(schoolId, app.preferredSectionId, app.studentProfile.category, session);
+            if (typeof WorkflowEngine !== 'undefined' && WorkflowEngine.validateTransition) {
+                WorkflowEngine.validateTransition('APPLICATION', app.status, 'ENROLLED', actorRole);
+            }
+            
+            const studentCategory = app.studentProfile?.category || 'GENERAL';
 
-            // 3. Identity Engine: Generate STU ID and Roll Number
-            const year = new Date().getFullYear().toString();
-            const enrollmentNumber = await IdentityEngine.generateSequence(schoolId, 'STU', year, session);
-            // 🟢 NEW: Scoped strictly by Year AND Section
-            const rollNumberSequence = await IdentityEngine.generateSequence(
+            await SeatEngine.releaseSeat(
                 schoolId,
-                `ROLL_${app.academicYearId}_${app.preferredSectionId}`,
-                year,
+                app.academicYearId,
+                app.appliedGradeId,
+                studentCategory,
+                'BLOCKED',
                 session
-            ); const rollNumber = rollNumberSequence.split('-').pop(); // e.g., gets '0012' from the string
+            );
 
-            // Create Living Student
-            const newStudent = await StudentRepo.create({
+            const seatResult = await SeatEngine.consumeSeat(
+                schoolId,
+                app.academicYearId,
+                app.appliedGradeId,
+                studentCategory,
+                session
+            );
+
+            const year = new Date().getFullYear().toString();
+            let enrollmentNumber;
+            if (typeof IdentityEngine !== 'undefined' && IdentityEngine.generateSequence) {
+                enrollmentNumber = await IdentityEngine.generateSequence(schoolId, 'STU', year, session);
+            } else {
+                enrollmentNumber = `STU-${year}-${Date.now().toString().slice(-6)}`; 
+            }
+
+            const newStudentArray = await StudentRepo.create([{
                 schoolId,
                 admissionApplicationId: app._id,
                 enrollmentNumber,
-                rollNumber: parseInt(rollNumber, 10),
                 academicYearId: app.academicYearId,
                 gradeId: app.appliedGradeId,
-                sectionId: app.preferredSectionId,
                 profile: app.studentProfile,
-                guardianLinks: app.guardians // Inherit normalized guardians
-            }, session);
+                guardianLinks: app.guardians, 
+                status: 'ACTIVE' 
+            }], { session });
+
+            const newStudent = newStudentArray[0];
 
             const guardianIds = app.guardians.map(g => g.guardianId);
-            await mongoose.model('Guardian').updateMany(
-                { _id: { $in: guardianIds }, schoolId },
-                { $addToSet: { linkedStudentIds: newStudent._id } },
-                { session }
-            );
+            if (guardianIds.length > 0) {
+                await mongoose.model('Guardian').updateMany(
+                    { _id: { $in: guardianIds }, schoolId },
+                    { $addToSet: { linkedStudentIds: newStudent._id } },
+                    { session }
+                );
+            }
 
-            // Freeze Application
-            await ApplicationRepo.markEnrolled(schoolId, app._id, newStudent._id, session);
+            const oldStatus = app.status;
+            app.status = 'ENROLLED';
+            app.enrolledStudentId = newStudent._id;
+            
+            if (!app.lifecycle) app.lifecycle = {};
+            app.lifecycle.enrolledAt = new Date();
+            
+            await app.save({ session });
 
-            // 6. Immutably Audit the Transformation
-            await AuditEngine.log(schoolId, 'APPLICATION', app._id, 'ENROLLED', actorId, {
-                studentId: newStudent._id,
-                rollNumber: newStudent.rollNumber,
-                consumedCategory: seatResult.consumedCategory
-            }, session);
+            if (typeof AuditEngine !== 'undefined' && AuditEngine.log) {
+                await AuditEngine.log(schoolId, 'APPLICATION', app._id, 'ENROLLED', actorId, {
+                    studentId: newStudent._id,
+                    enrollmentNumber: newStudent.enrollmentNumber,
+                    consumedCategory: seatResult?.consumedCategory || studentCategory,
+                    oldStatus,
+                    newStatus: 'ENROLLED'
+                }, session);
+            }
 
             await session.commitTransaction();
 
-            return { applicationNumber: app.applicationNumber, enrollmentNumber, rollNumber: newStudent.rollNumber };
+            return { 
+                applicationNumber: app.applicationNumber, 
+                enrollmentNumber: newStudent.enrollmentNumber 
+            };
 
         } catch (error) {
             await session.abortTransaction();
             throw error;
         } finally {
+            // Cleanup session
             session.endSession();
         }
     }
 
-    /**
-     * Executes the Document Verification Workflow (Admin Only)
-     */
-    // admissions.use-case.js
     static async verifyDocument(schoolId, applicationId, documentId, targetStatus, remarks, fileKey, actorId, actorRole) {
         try {
             const app = await ApplicationRepo.findById(schoolId, applicationId);
@@ -405,11 +456,11 @@ class AdmissionsUseCase {
             if (!document) throw new Error("Document not found in this application.");
 
             const oldStatus = document.status;
-            document.status = targetStatus; 
+            document.status = targetStatus;
             document.verifiedBy = actorId;
             document.verifiedAt = new Date();
-            
-            // 🟢 VERSIONING LOGIC: Agar naya fileKey aaya hai aur purane wale se alag hai
+
+            //  VERSIONING LOGIC: Agar naya fileKey aaya hai aur purane wale se alag hai
             if (fileKey && document.fileKey !== fileKey) {
                 // Agar pehle se koi fileKey tha, usko versions array me push kardo
                 if (document.fileKey) {
@@ -441,13 +492,13 @@ class AdmissionsUseCase {
     }
 }
 
-// STATUS FLOW VALIDATION MACHINE (Rule #4)
+// STATUS FLOW VALIDATION MACHINE
 const VALID_TRANSITIONS = {
     new: ['contacted', 'closed'],
     contacted: ['follow_up', 'converted', 'closed'],
-    follow_up: ['converted', 'closed', 'contacted'], // Allowing slip back to contacted if parent goes cold
-    converted: [], // Terminal state
-    closed: ['new', 'contacted'] // Re-opening a dead lead
+    follow_up: ['converted', 'closed', 'contacted'],
+    converted: [],
+    closed: ['new', 'contacted']
 };
 
 module.exports = AdmissionsUseCase;

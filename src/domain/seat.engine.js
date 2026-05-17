@@ -1,75 +1,83 @@
 const SeatInventory = require('../models/seatInventory.model');
 
 class SeatEngine {
-    static async consumeSeat(schoolId, sectionId, category, session) {
-        // We dynamically build the query field paths for the exact category
+    // 🟢 GRADE-LEVEL SEAT CONSUMPTION WITH SPILLOVER
+    static async consumeSeat(schoolId, academicYearId, gradeId, category, session) {
+        category = String(category).toUpperCase();
         const quotaPath = `quotas.${category}`;
-        const capacityField = `${quotaPath}.capacity`;
-        const blockedField = `${quotaPath}.blockedSeats`;
-        const consumedField = `${quotaPath}.consumedSeats`;
 
-        // 🟢 ATOMIC UPDATE: We use MongoDB's $expr to ensure math is done at the DB level
+        // 1. Try to consume in specific category
         const updatedInventory = await SeatInventory.findOneAndUpdate(
-            { 
-                schoolId, 
-                sectionId,
-                $expr: {
-                    // Ensures: capacity - (blocked + consumed) > 0
-                    $gt: [
-                        { $subtract: [ `$${capacityField}`, { $add: [ `$${blockedField}`, `$${consumedField}` ] } ] },
-                        0
-                    ]
-                }
+            {
+                schoolId, academicYearId, gradeId, // 🟢 FIXED: Using gradeId
+                $expr: { $gt: [{ $subtract: [`$${quotaPath}.capacity`, { $add: [`$${quotaPath}.blockedSeats`, `$${quotaPath}.consumedSeats`] }] }, 0] }
             },
-            { $inc: { [consumedField]: 1 } },
-            { returnDocument: 'after',  session }
+            { $inc: { [`${quotaPath}.consumedSeats`]: 1 } },
+            { returnDocument: 'after', session }
         );
 
-        if (updatedInventory) {
-            return { success: true, consumedCategory: category };
-        }
+        if (updatedInventory) return { success: true, consumedCategory: category };
 
-        // 🟡 SPILLOVER ATOMIC CHECK
-        // If the specific category failed, we try to decrement GENERAL (if spillover is allowed)
+        // 2. SPILLOVER: Try to consume in GENERAL if specific category is full
         if (category !== 'GENERAL') {
             const spilloverInventory = await SeatInventory.findOneAndUpdate(
-                { 
-                    schoolId, 
-                    sectionId,
-                    allowSpillover: true,
-                    $expr: {
-                        $gt: [
-                            { $subtract: [ "$quotas.GENERAL.capacity", { $add: [ "$quotas.GENERAL.blockedSeats", "$quotas.GENERAL.consumedSeats" ] } ] },
-                            0
-                        ]
-                    }
+                {
+                    schoolId, academicYearId, gradeId,
+                    $expr: { $gt: [{ $subtract: [`$quotas.GENERAL.capacity`, { $add: [`$quotas.GENERAL.blockedSeats`, `$quotas.GENERAL.consumedSeats`] }] }, 0] }
                 },
                 { $inc: { "quotas.GENERAL.consumedSeats": 1 } },
                 { returnDocument: 'after', session }
             );
 
-            if (spilloverInventory) {
-                return { success: true, consumedCategory: 'GENERAL', spilledOver: true };
-            }
+            if (spilloverInventory) return { success: true, consumedCategory: 'GENERAL', spilledOver: true };
         }
 
         throw new Error(`Capacity Error: No available seats in the ${category} quota, and no spillover seats available.`);
     }
 
-    static async blockSeat(schoolId, sectionId, category, session) {
+    // 🟢 GRADE-LEVEL SEAT BLOCKING WITH SPILLOVER
+    static async blockSeat(schoolId, academicYearId, gradeId, category, session) {
+        category = String(category).toUpperCase();
         const quotaPath = `quotas.${category}`;
-        // Increment blockedSeats atomically
+
+        // 1. Try to block in specific category
         const result = await SeatInventory.findOneAndUpdate(
-            { 
-                schoolId, 
-                sectionId,
-                $expr: { $gt: [ { $subtract: [ `$${quotaPath}.capacity`, { $add: [ `$${quotaPath}.blockedSeats`, `$${quotaPath}.consumedSeats` ] } ] }, 0 ] }
+            {
+                schoolId, academicYearId, gradeId,
+                $expr: { $gt: [{ $subtract: [`$${quotaPath}.capacity`, { $add: [`$${quotaPath}.blockedSeats`, `$${quotaPath}.consumedSeats`] }] }, 0] }
             },
             { $inc: { [`${quotaPath}.blockedSeats`]: 1 } },
             { returnDocument: 'after', session }
         );
-        if (!result) throw new Error("Reservation Failed: No seats available to block.");
-        return true;
+        
+        if (result) return { success: true, blockedCategory: category };
+
+        // 2. SPILLOVER: Try to block in GENERAL
+        if (category !== 'GENERAL') {
+            const spilloverResult = await SeatInventory.findOneAndUpdate(
+                {
+                    schoolId, academicYearId, gradeId,
+                    $expr: { $gt: [{ $subtract: [`$quotas.GENERAL.capacity`, { $add: [`$quotas.GENERAL.blockedSeats`, `$quotas.GENERAL.consumedSeats`] }] }, 0] }
+                },
+                { $inc: { "quotas.GENERAL.blockedSeats": 1 } },
+                { returnDocument: 'after', session }
+            );
+            if (spilloverResult) return { success: true, blockedCategory: 'GENERAL', spilledOver: true };
+        }
+
+        throw new Error(`Reservation Failed: No seats available to block for class in ${category} or GENERAL quota.`);
+    }
+
+    // 🟢 SEAT RELEASE LOGIC
+    static async releaseSeat(schoolId, academicYearId, gradeId, category, releaseType = 'BLOCKED', session) {
+        category = String(category).toUpperCase();
+        const fieldToDecrement = releaseType === 'BLOCKED' ? `quotas.${category}.blockedSeats` : `quotas.${category}.consumedSeats`;
+
+        await SeatInventory.findOneAndUpdate(
+            { schoolId, academicYearId, gradeId, [fieldToDecrement]: { $gt: 0 } },
+            { $inc: { [fieldToDecrement]: -1 } },
+            { session }
+        );
     }
 }
 
