@@ -15,6 +15,7 @@ router.get('/applications/metadata', AdmissionsController.getApplicationMetadata
 router.get('/applications/:id', AdmissionsController.getApplicationById);
 router.get('/documents/url', AdmissionsController.getDocumentUrl);
 router.patch('/applications/:id/documents/:documentId/verify', AdmissionsController.verifyDocument);
+router.put('/applications/:id', AdmissionsController.updateApplication);
 
 router.post('/leads', AdmissionsController.captureLead);
 router.get('/leads/metadata', AdmissionsController.getLeadMetadata);

@@ -199,6 +199,20 @@ const getApplicationMetadata = async (req, res) => {
     }
 };
 
+const updateApplication = async (req, res) => {
+    try {
+        const result = await AdmissionsUseCase.updateApplicationData(
+            req.user.schoolId,
+            req.params.id,
+            req.body,
+            req.user._id
+        );
+        res.status(200).json({ success: true, data: result, message: "Application updated successfully" });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getUploadUrl,
     createApplication,
@@ -212,5 +226,6 @@ module.exports = {
     updateLeadStatus,
     getApplicationById,
     getDocumentUrl,
-    getApplicationMetadata
+    getApplicationMetadata,
+    updateApplication
 };

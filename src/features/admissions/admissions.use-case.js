@@ -490,6 +490,50 @@ class AdmissionsUseCase {
             throw error;
         }
     }
+
+    // 🟢 NEW: Update Application Details before Enrollment
+    static async updateApplicationData(schoolId, applicationId, payload, actorId) {
+        try {
+            const app = await ApplicationRepo.findById(schoolId, applicationId);
+            if (!app) throw new Error("Application not found.");
+
+            // 1. Lock Protection: Approved ya Enrolled hone ke baad direct edit allowed nahi hai
+            if (['APPROVED', 'ENROLLED', 'WITHDRAWN', 'ARCHIVED'].includes(app.status)) {
+                throw new Error(`Validation Error: Cannot edit application data when status is ${app.status}. Demote to UNDER_REVIEW first.`);
+            }
+
+            // 2. Safe Update (Documents yahan se update nahi honge, unka apna flow hai)
+            if (payload.studentProfile) {
+                // Merge new profile data with existing
+                app.studentProfile = { ...app.studentProfile.toObject(), ...payload.studentProfile };
+            }
+            if (payload.guardians) {
+                app.guardians = payload.guardians;
+            }
+            if (payload.academicHistory) {
+                app.academicHistory = payload.academicHistory;
+            }
+            if (payload.appliedGradeId) {
+                app.appliedGradeId = payload.appliedGradeId;
+            }
+            if (payload.admissionSource) {
+                app.admissionSource = payload.admissionSource;
+            }
+
+            await app.save();
+
+            // 3. Log the update action
+            if (typeof AuditEngine !== 'undefined' && AuditEngine.log) {
+                await AuditEngine.log(schoolId, 'APPLICATION', app._id, 'APPLICATION_UPDATED', actorId, {
+                    remarks: 'Admin manually updated application details.'
+                });
+            }
+
+            return app;
+        } catch (error) {
+            throw error;
+        }
+    }
 }
 
 // STATUS FLOW VALIDATION MACHINE
