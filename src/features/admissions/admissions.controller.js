@@ -202,7 +202,7 @@ const updateApplication = async (req, res) => {
             req.user.schoolId,
             req.params.id,
             req.body,
-            req.user._id
+            req.user.id
         );
         res.status(200).json({ success: true, data: result, message: "Application updated successfully" });
     } catch (error) {

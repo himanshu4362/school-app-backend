@@ -233,34 +233,40 @@ class AdmissionsUseCase {
 
         try {
             const app = await ApplicationRepo.findById(schoolId, applicationId, session);
-            if (app.status === 'ENROLLED') {
-                throw new Error('Application already enrolled.');
-            }
-            if (app.status !== 'APPROVED') {
-                throw new Error('Application must be APPROVED before enrollment.');
-            }
             if (!app) throw new Error("Application not found.");
 
+            // IMPROVEMENT 1: Removed the bypass. WorkflowEngine now handles ALL states securely.
             if (typeof WorkflowEngine !== 'undefined' && WorkflowEngine.validateTransition) {
-                if (app.status !== 'DOCUMENT_PENDING') {
-                    WorkflowEngine.validateTransition('APPLICATION', app.status, targetStatus, actorRole);
-                }
+                WorkflowEngine.validateTransition('APPLICATION', app.status, targetStatus, actorRole);
             }
 
+            // ... (above code remains same)
             const oldStatus = app.status;
             app.status = targetStatus;
 
             if (!app.lifecycle) app.lifecycle = {};
-            if (targetStatus === 'APPROVED') app.lifecycle.approvedAt = new Date();
 
-            //  FIXED: SEAT ENGINE INTEGRATION (Using app instead of payload, and passing gradeId directly)
+            // NAYA: Auto-Recording Lifecycle Timestamps for Analytics
+            const now = new Date();
+            if (targetStatus === 'SUBMITTED' && oldStatus === 'DRAFT') app.lifecycle.submittedAt = now;
+            if (targetStatus === 'UNDER_REVIEW') app.lifecycle.reviewStartedAt = now; // If you added this to schema, else optional
+            if (targetStatus === 'APPROVED') app.lifecycle.approvedAt = now;
+            if (targetStatus === 'REJECTED') app.lifecycle.rejectedAt = now;
+            if (targetStatus === 'WITHDRAWN') app.lifecycle.withdrawnAt = now;
+            if (targetStatus === 'ARCHIVED') app.lifecycle.archivedAt = now;
+
             const studentCategory = app.studentProfile?.category || 'GENERAL';
 
+            // Seat Blocking Logic
             if (targetStatus === 'APPROVED' && oldStatus !== 'APPROVED') {
-                // We pass appliedGradeId because seats are managed per Grade during admission
                 await SeatEngine.blockSeat(schoolId, app.academicYearId, app.appliedGradeId, studentCategory, session);
             }
-            else if (['REJECTED', 'WITHDRAWN', 'EXPIRED'].includes(targetStatus) && oldStatus === 'APPROVED') {
+            // Seat Release Logic (Including DOCUMENT_PENDING)
+            else if (['REJECTED', 'WITHDRAWN', 'EXPIRED', 'DOCUMENT_PENDING'].includes(targetStatus) && oldStatus === 'APPROVED') {
+                
+                // Clear approval timestamp on rollback
+                app.lifecycle.approvedAt = undefined; 
+
                 await SeatEngine.releaseSeat(
                     schoolId,
                     app.academicYearId,
@@ -386,18 +392,17 @@ class AdmissionsUseCase {
                 enrollmentNumber = `STU-${year}-${Date.now().toString().slice(-6)}`;
             }
 
-            const newStudentArray = await StudentRepo.create([{
-                schoolId,
+            // 🟢 FIX: Pass as a single object and direct session parameter
+            const newStudent = await StudentRepo.create({
+                schoolId: schoolId,
                 admissionApplicationId: app._id,
-                enrollmentNumber,
+                enrollmentNumber: enrollmentNumber,
                 academicYearId: app.academicYearId,
                 gradeId: app.appliedGradeId,
-                profile: app.studentProfile,
+                profile: app.studentProfile.toObject ? app.studentProfile.toObject() : app.studentProfile,
                 guardianLinks: app.guardians,
                 status: 'ACTIVE'
-            }], { session });
-
-            const newStudent = newStudentArray[0];
+            }, session);
 
             const guardianIds = app.guardians.map(g => g.guardianId);
             if (guardianIds.length > 0) {
@@ -498,20 +503,67 @@ class AdmissionsUseCase {
                 throw new Error(`Validation Error: Cannot edit application data when status is ${app.status}. Demote to UNDER_REVIEW first.`);
             }
 
-            // 2. Safe Update (Documents yahan se update nahi honge, unka apna flow hai)
+            // 2. Safe Update with Deep Merge (Taaki purana data delete na ho)
+
             if (payload.studentProfile) {
-                // Merge new profile data with existing
                 app.studentProfile = { ...app.studentProfile.toObject(), ...payload.studentProfile };
             }
-            if (payload.guardians) {
-                app.guardians = payload.guardians;
+
+            // Medical Info is nested inside studentProfile, ensure it merges safely if sent separately
+            if (payload.studentProfile && payload.studentProfile.medicalInfo) {
+                app.studentProfile.medicalInfo = {
+                    ...(app.studentProfile.medicalInfo ? app.studentProfile.medicalInfo.toObject() : {}),
+                    ...payload.studentProfile.medicalInfo
+                };
+            }
+
+            if (payload.address) {
+                app.address = {
+                    ...(app.address ? app.address.toObject() : {}),
+                    ...payload.address,
+
+                    current: {
+                        ...(app.address?.current
+                            ? app.address.current.toObject()
+                            : {}),
+                        ...(payload.address.current || {})
+                    },
+
+                    permanent: {
+                        ...(app.address?.permanent
+                            ? app.address.permanent.toObject()
+                            : {}),
+                        ...(payload.address.permanent || {})
+                    }
+                };
             }
             if (payload.academicHistory) {
-                app.academicHistory = payload.academicHistory;
+
+                app.academicHistory = {
+                    ...(app.academicHistory
+                        ? app.academicHistory.toObject()
+                        : {}),
+
+                    ...payload.academicHistory,
+
+                    schoolAddress: {
+                        ...(app.academicHistory?.schoolAddress
+                            ? app.academicHistory.schoolAddress.toObject()
+                            : {}),
+
+                        ...(payload.academicHistory.schoolAddress || {})
+                    }
+                };
             }
+
+            if (payload.guardians) {
+                app.guardians = payload.guardians; // Arrays replace completely
+            }
+
             if (payload.appliedGradeId) {
                 app.appliedGradeId = payload.appliedGradeId;
             }
+
             if (payload.admissionSource) {
                 app.admissionSource = payload.admissionSource;
             }
