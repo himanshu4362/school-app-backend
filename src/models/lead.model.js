@@ -8,17 +8,17 @@ const activitySchema = new mongoose.Schema({
 });
 
 const leadSchema = new mongoose.Schema({
-  // 🟢 9. SECURITY: Enforced School Isolation
+  // 9. SECURITY: Enforced School Isolation
   schoolId: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
   
   parentName: { type: String, required: true },
   mobile: { type: String, required: true },
   email: { type: String },
   
-  // 🟢 1. CRITICAL: Relational Integrity
+  // 1. CRITICAL: Relational Integrity
   interestedClassId: { type: mongoose.Schema.Types.ObjectId, ref: 'Grade' },
   
-  // 🟢 2. CRITICAL: Lead Ownership
+  // 2. CRITICAL: Lead Ownership
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   
   source: {
@@ -36,10 +36,10 @@ const leadSchema = new mongoose.Schema({
   remarks: { type: String },
   campaignId: { type: String, default: 'CAMP-2026-DEFAULT' },
 
-  // 🟢 5. MOST IMPORTANT: CRM to Admissions Bridge
+  // 5. MOST IMPORTANT: CRM to Admissions Bridge
   admissionApplicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Application' },
 
-  // 🟢 3. VERY IMPORTANT: Activity Timeline
+  // 3. VERY IMPORTANT: Activity Timeline
   activities: [activitySchema]
 
 }, { 

@@ -10,13 +10,13 @@ const s3Client = new S3Client({
     }
 });
 
-// 🟢 Folder Structure: schools/{schoolId}/applications/{studentName}_{appId}/documents/
+// Folder Structure: schools/{schoolId}/applications/{studentName}_{appId}/documents/
 const generatePresignedUrl = async (schoolId, fileName, fileType, studentName = 'Unknown', applicationId = 'New') => {
     // S3 ke liye strings ko safe banaya (spaces hta kar underscores lagaye)
     const safeStudentName = studentName.replace(/[^a-zA-Z0-9]/g, '_');
     const uniqueFileName = `${Date.now()}-${fileName.replace(/\s+/g, '-')}`;
     
-    // 🟢 PERFECT FOLDER NAMING RULE
+    // PERFECT FOLDER NAMING RULE
     const fileKey = `schools/${schoolId}/applications/${safeStudentName}_${applicationId}/documents/${uniqueFileName}`;
     
     const command = new PutObjectCommand({

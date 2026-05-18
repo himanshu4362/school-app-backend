@@ -16,7 +16,6 @@ const DocumentSchema = new mongoose.Schema({
   },
   displayName: { type: String, required: true },
   documentNumber: { type: String },
-  isMandatory: { type: Boolean, default: false },
   status: {
     type: String,
     enum: ['PENDING', 'SUBMITTED', 'VERIFIED', 'REJECTED', 'EXPIRED'],
@@ -45,7 +44,7 @@ const DocumentSchema = new mongoose.Schema({
 
 
 const AdmissionTestSchema = new mongoose.Schema({
-  status: { type: String, enum: ['PENDING', 'SCHEDULED', 'COMPLETED', 'EXEMPTED'], required: true, default: 'PENDING' },
+  status: { type: String, enum: ['PENDING', 'SCHEDULED', 'COMPLETED', 'EXEMPTED'], required: true, },
   scheduledAt: { type: Date },
   writtenExamScore: { type: Number },
   mockExamScore: { type: Number },
@@ -64,6 +63,13 @@ const MedicalInfoSchema = new mongoose.Schema({
   emergencyAction: { type: String }
 }, { _id: false });
 
+const AddressSchema = new mongoose.Schema({
+  addressLine1: { type: String, required: true },
+  city: { type: String, required: true },
+  district: { type: String, required: true },
+  state: { type: String, required: true },
+  pincode: { type: String, required: true }
+}, { _id: false });
 
 // ==========================================
 // 2. MAIN APPLICATION SCHEMA
@@ -113,9 +119,16 @@ const applicationSchema = new mongoose.Schema({
     isPrimaryContact: { type: Boolean, default: false }
   }],
 
+  address: {
+    current: { type: AddressSchema, required: true },
+    permanent: { type: AddressSchema },
+    isSameAsPermanent: { type: Boolean, default: false }
+  },
+
   // ACADEMIC HISTORY & ADMISSION EXAMS
   academicHistory: {
     schoolName: { type: String },
+    schoolAddress: { type: AddressSchema, required: true},
     board: { type: String },
     previousClass: { type: String },
     tcNumber: { type: String },
@@ -179,36 +192,42 @@ const applicationSchema = new mongoose.Schema({
 applicationSchema.index({ schoolId: 1, 'studentProfile.aadhaarEncrypted': 1 }, { unique: true });
 applicationSchema.index({ schoolId: 1, applicationNumber: 1 }, { unique: true });
 
-// Note: Arrow function removed, using standard function to bind 'this' correctly
-applicationSchema.pre('save', function (next) {
+//  FIX: Used modern async function to avoid Mongoose 'next is not a function' bug
+applicationSchema.pre('save', async function () {
 
-  // 1. Lock specific fields if Approved or Enrolled
+  if (this.address && this.address.isSameAsPermanent) {
+    this.address.permanent = this.address.current;
+  }
+
+  // Lock specific fields if Approved or Enrolled
   if (['APPROVED', 'ENROLLED'].includes(this.status)) {
     const lockedPaths = ['studentProfile.dob', 'studentProfile.aadhaarEncrypted', 'studentProfile.category'];
     for (let path of lockedPaths) {
       if (this.isModified(path)) {
-        return next(new Error(`Validation Error: Cannot modify ${path} after application is ${this.status}.`));
+        throw new Error(`Validation Error: Cannot modify ${path} after application is ${this.status}.`);
       }
     }
   }
 
   // 2. Strict Guardian Validations
   if (!this.guardians || this.guardians.length === 0) {
-    return next(new Error('Validation Error: At least one guardian details must be provided.'));
+    throw new Error('Validation Error: At least one guardian details must be provided.');
   }
 
-  const guardianIds = this.guardians.map(g => g.guardianId.toString());
+  const guardianIds = this.guardians.filter(g => g.guardianId).map(g => g.guardianId.toString());
+  if (guardianIds.length !== this.guardians.length) {
+    throw new Error('Validation Error: guardianId is required.');
+  }
   const uniqueIds = new Set(guardianIds);
   if (uniqueIds.size !== guardianIds.length) {
-    return next(new Error('Validation Error: The same guardian cannot be linked multiple times.'));
+    throw new Error('Validation Error: The same guardian cannot be linked multiple times.');
   }
 
   const primaryContacts = this.guardians.filter(g => g.isPrimaryContact);
   if (primaryContacts.length === 0) {
-    return next(new Error('Validation Error: Please select at least one primary guardian contact for communications.'));
+    throw new Error('Validation Error: Please select at least one primary guardian contact for communications.');
   }
-
-  next();
+  
 });
 
 module.exports = mongoose.model('Application', applicationSchema);

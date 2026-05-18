@@ -1,7 +1,7 @@
 const SeatInventory = require('../models/seatInventory.model');
 
 class SeatEngine {
-    // 🟢 GRADE-LEVEL SEAT CONSUMPTION WITH SPILLOVER
+    // GRADE-LEVEL SEAT CONSUMPTION WITH SPILLOVER
     static async consumeSeat(schoolId, academicYearId, gradeId, category, session) {
         category = String(category).toUpperCase();
         const quotaPath = `quotas.${category}`;
@@ -9,7 +9,7 @@ class SeatEngine {
         // 1. Try to consume in specific category
         const updatedInventory = await SeatInventory.findOneAndUpdate(
             {
-                schoolId, academicYearId, gradeId, // 🟢 FIXED: Using gradeId
+                schoolId, academicYearId, gradeId, // FIXED: Using gradeId
                 $expr: { $gt: [{ $subtract: [`$${quotaPath}.capacity`, { $add: [`$${quotaPath}.blockedSeats`, `$${quotaPath}.consumedSeats`] }] }, 0] }
             },
             { $inc: { [`${quotaPath}.consumedSeats`]: 1 } },
@@ -35,7 +35,7 @@ class SeatEngine {
         throw new Error(`Capacity Error: No available seats in the ${category} quota, and no spillover seats available.`);
     }
 
-    // 🟢 GRADE-LEVEL SEAT BLOCKING WITH SPILLOVER
+    // GRADE-LEVEL SEAT BLOCKING WITH SPILLOVER
     static async blockSeat(schoolId, academicYearId, gradeId, category, session) {
         category = String(category).toUpperCase();
         const quotaPath = `quotas.${category}`;
@@ -68,7 +68,7 @@ class SeatEngine {
         throw new Error(`Reservation Failed: No seats available to block for class in ${category} or GENERAL quota.`);
     }
 
-    // 🟢 SEAT RELEASE LOGIC
+    // SEAT RELEASE LOGIC
     static async releaseSeat(schoolId, academicYearId, gradeId, category, releaseType = 'BLOCKED', session) {
         category = String(category).toUpperCase();
         const fieldToDecrement = releaseType === 'BLOCKED' ? `quotas.${category}.blockedSeats` : `quotas.${category}.consumedSeats`;

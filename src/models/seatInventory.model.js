@@ -11,10 +11,9 @@ const seatInventorySchema = new mongoose.Schema({
   schoolId: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true, index: true },
   academicYearId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicYear', required: true },
   gradeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Grade', required: true },
-  sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Section', required: true }, 
   totalCapacity: { type: Number, required: true },
   
-  // 🟢 NEW: The Quota Matrix
+  // NEW: The Quota Matrix
   quotas: {
     GENERAL: { type: QuotaStatsSchema, default: () => ({ capacity: 0 }) },
     OBC: { type: QuotaStatsSchema, default: () => ({ capacity: 0 }) },
@@ -24,7 +23,7 @@ const seatInventorySchema = new mongoose.Schema({
     OTHER: { type: QuotaStatsSchema, default: () => ({ capacity: 0 }) }
   },
 
-  // 🟢 NEW: Spillover Rule
+  // NEW: Spillover Rule
   allowSpillover: { 
     type: Boolean, 
     default: true,
@@ -34,6 +33,6 @@ const seatInventorySchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Ensure we don't create duplicate inventories for the same section
-seatInventorySchema.index({ schoolId: 1, academicYearId: 1, sectionId: 1 }, { unique: true });
+seatInventorySchema.index({ schoolId: 1, academicYearId: 1, gradeId: 1 }, { unique: true });
 
 module.exports = mongoose.model('SeatInventory', seatInventorySchema);

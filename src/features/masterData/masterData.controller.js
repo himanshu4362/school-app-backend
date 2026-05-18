@@ -78,7 +78,7 @@ const addSection = async (req, res) => {
         const schoolId = req.user.schoolId;
         const { academicYearId, gradeId, roomId, name, targetCapacity } = req.body;
 
-        // 🟢 VALIDATION: Fetch the physical room to check capacity
+        // VALIDATION: Fetch the physical room to check capacity
         const room = await Room.findOne({ _id: roomId, schoolId });
         if (!room) {
             throw new Error("Validation Error: Selected Room does not exist.");
@@ -106,19 +106,28 @@ const addSection = async (req, res) => {
 const addSeatInventory = async (req, res) => {
     try {
         const schoolId = req.user.schoolId;
-        // Notice: We do NOT extract totalCapacity from req.body anymore
-        const { academicYearId, gradeId, sectionId, allowSpillover, quotas } = req.body;
+        const { academicYearId, gradeId, allowSpillover, quotas } = req.body;
 
-        // 🟢 1. FETCH THE SINGLE SOURCE OF TRUTH
-        const section = await Section.findOne({ _id: sectionId, schoolId });
-        if (!section) {
-            throw new Error("Validation Error: Section not found.");
+        // NEW LOCK: Check if inventory already exists to prevent duplicate seat overlaps
+        const existingInventory = await SeatInventory.findOne({ schoolId, academicYearId, gradeId });
+        if (existingInventory) {
+            throw new Error("Validation Error: Seat Inventory for this Grade in the selected Academic Year already exists.");
         }
 
-        // The exact capacity defined when the section was assigned to a physical room
-        const enforcedTotalCapacity = section.targetCapacity;
+        // 1. FETCH ALL SECTIONS FOR THIS GRADE AND SUM THEIR CAPACITIES
+        const sectionsInGrade = await Section.find({ gradeId, schoolId, academicYearId });
+        
+        if (!sectionsInGrade || sectionsInGrade.length === 0) {
+            throw new Error("Validation Error: Please create at least one Section for this Grade before configuring Seat Inventory.");
+        }
 
-        // 🟢 2. VALIDATE THE QUOTA MATH 
+        // Calculate the total physical capacity across all sections in this class
+        let totalGradeCapacity = 0;
+        sectionsInGrade.forEach(sec => {
+            totalGradeCapacity += sec.targetCapacity;
+        });
+
+        // 2. VALIDATE THE QUOTA MATH
         const sumOfQuotas =
             (quotas?.GENERAL?.capacity || 0) +
             (quotas?.OBC?.capacity || 0) +
@@ -127,17 +136,16 @@ const addSeatInventory = async (req, res) => {
             (quotas?.EWS?.capacity || 0) +
             (quotas?.OTHER?.capacity || 0);
 
-        if (sumOfQuotas !== enforcedTotalCapacity) {
-            throw new Error(`Quota Error: The sum of category quotas (${sumOfQuotas}) must perfectly match the Section's physical capacity (${enforcedTotalCapacity}).`);
+        if (sumOfQuotas !== totalGradeCapacity) {
+            throw new Error(`Quota Error: The sum of category quotas (${sumOfQuotas}) must perfectly match the total capacity of all sections in this Grade (${totalGradeCapacity}).`);
         }
 
-        // 🟢 3. CREATE THE INVENTORY 
+        // 3. CREATE THE GRADE-LEVEL INVENTORY
         const result = await SeatInventory.create({
             schoolId,
             academicYearId,
             gradeId,
-            sectionId,
-            totalCapacity: enforcedTotalCapacity, // Backend sets it automatically!
+            totalCapacity: totalGradeCapacity, 
             allowSpillover,
             quotas
         });

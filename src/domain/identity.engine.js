@@ -1,25 +1,35 @@
 const Counter = require('../models/counter.model');
 
 class IdentityEngine {
+
     /**
-     * Safely generates an atomic, sequential ID.
-     * @param {ObjectId} schoolId 
-     * @param {String} type - e.g., 'APP', 'STU'
-     * @param {String} year - e.g., '2026'
-     * @param {Object} session - MongoDB Transaction Session (Crucial!)
+     * Safely generates an atomic, sequential ID without race conditions.
      */
     static async generateSequence(schoolId, type, year, session) {
+
         const sequenceName = `${type}_${year}`;
-        
-        // Atomically find the counter and increment it by 1
+
+        // 🟢 FIX: Added new: true and setDefaultsOnInsert: true
         const counter = await Counter.findOneAndUpdate(
-            { schoolId, sequenceName },
-            { $inc: { sequenceValue: 1 } },
-            { returnDocument: 'after', upsert: true, session } // upsert creates it if it doesn't exist yet
+            {
+                schoolId,
+                sequenceName
+            },
+            {
+                $inc: { sequenceValue: 1 }
+            },
+            {
+                upsert: true,
+                new: true,
+                setDefaultsOnInsert: true,
+                session
+            }
         );
 
-        // Format: APP-2026-0001
-        const paddedNumber = String(counter.sequenceValue).padStart(4, '0');
+        const paddedNumber = String(
+            counter.sequenceValue
+        ).padStart(4, '0');
+
         return `${type}-${year}-${paddedNumber}`;
     }
 }

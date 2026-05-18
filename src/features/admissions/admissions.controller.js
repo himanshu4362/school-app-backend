@@ -6,7 +6,6 @@ const getApplicationById = async (req, res) => {
     try {
         const app = await Application.findById(req.params.id)
             .populate('appliedGradeId', 'name')
-            .populate('preferredSectionId', 'name')
             .populate('guardians.guardianId'); 
             
         if (!app) throw new Error("Application not found.");
@@ -155,8 +154,6 @@ const updateLeadStatus = async (req, res) => {
 
 const getApplicationMetadata = async (req, res) => {
     try {
-        const Application = require('../../models/application.model');
-        
         const formatLabel = (str) => {
             if (!str) return '';
             return str.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');

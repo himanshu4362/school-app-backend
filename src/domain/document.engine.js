@@ -1,43 +1,148 @@
 class DocumentEngine {
+
     static REQUIREMENT_MATRIX = {
+
+        // =========================================
+        // FRESH ADMISSION
+        // =========================================
+
         'fresh': {
-            'GENERAL': ['BIRTH_CERTIFICATE', 'NATIONAL_ID', 'ADDRESS_PROOF'],
-            'OBC': ['BIRTH_CERTIFICATE', 'NATIONAL_ID', 'ADDRESS_PROOF', 'CASTE_CERTIFICATE'],
-            'SC': ['BIRTH_CERTIFICATE', 'NATIONAL_ID', 'ADDRESS_PROOF', 'CASTE_CERTIFICATE'],
-            // etc...
+
+            // General students
+            'GENERAL': [
+                'AADHAAR',
+                'BIRTH_CERTIFICATE',
+                'ADDRESS_PROOF'
+            ],
+
+            // OBC
+            'OBC': [
+                'AADHAAR',
+                'BIRTH_CERTIFICATE',
+                'ADDRESS_PROOF',
+                'CASTE_CERTIFICATE'
+            ],
+
+            // SC
+            'SC': [
+                'AADHAAR',
+                'BIRTH_CERTIFICATE',
+                'ADDRESS_PROOF',
+                'CASTE_CERTIFICATE'
+            ],
+
+            // ST
+            'ST': [
+                'AADHAAR',
+                'BIRTH_CERTIFICATE',
+                'ADDRESS_PROOF',
+                'CASTE_CERTIFICATE'
+            ],
+
+            // EWS
+            'EWS': [
+                'AADHAAR',
+                'BIRTH_CERTIFICATE',
+                'ADDRESS_PROOF',
+                'INCOME_CERTIFICATE'
+            ],
+
+            // Other
+            'OTHER': [
+                'AADHAAR',
+                'BIRTH_CERTIFICATE',
+                'ADDRESS_PROOF'
+            ]
         },
+
+        // =========================================
+        // TRANSFER ADMISSION
+        // =========================================
+
         'transfer': {
-            'GENERAL': ['TRANSFER_CERTIFICATE', 'PREVIOUS_MARKSHEET', 'NATIONAL_ID', 'ADDRESS_PROOF'],
-            'EWS': ['TRANSFER_CERTIFICATE', 'PREVIOUS_MARKSHEET', 'NATIONAL_ID', 'ADDRESS_PROOF', 'INCOME_CERTIFICATE'],
-            // etc...
+
+            'GENERAL': [
+                'AADHAAR',
+                'TRANSFER_CERTIFICATE',
+                'MARKSHEET',
+                'ADDRESS_PROOF'
+            ],
+
+            'OBC': [
+                'AADHAAR',
+                'TRANSFER_CERTIFICATE',
+                'MARKSHEET',
+                'ADDRESS_PROOF',
+                'CASTE_CERTIFICATE'
+            ],
+
+            'SC': [
+                'AADHAAR',
+                'TRANSFER_CERTIFICATE',
+                'MARKSHEET',
+                'ADDRESS_PROOF',
+                'CASTE_CERTIFICATE'
+            ],
+
+            'ST': [
+                'AADHAAR',
+                'TRANSFER_CERTIFICATE',
+                'MARKSHEET',
+                'ADDRESS_PROOF',
+                'CASTE_CERTIFICATE'
+            ],
+
+            'EWS': [
+                'AADHAAR',
+                'TRANSFER_CERTIFICATE',
+                'MARKSHEET',
+                'ADDRESS_PROOF',
+                'INCOME_CERTIFICATE'
+            ],
+
+            'OTHER': [
+                'AADHAAR',
+                'TRANSFER_CERTIFICATE',
+                'MARKSHEET',
+                'ADDRESS_PROOF'
+            ]
         }
     };
 
-    /**
-     * Returns the array of required document types.
-     */
     static getRequiredList(admissionType, category = 'GENERAL') {
+
+        category = String(category).toUpperCase();
+
         const typeMatrix = this.REQUIREMENT_MATRIX[admissionType];
-        if (!typeMatrix) throw new Error(`Unknown admission type: ${admissionType}`);
+
+        if (!typeMatrix) {
+            throw new Error(`Unknown admission type: ${admissionType}`);
+        }
+
         return typeMatrix[category] || typeMatrix['GENERAL'];
     }
 
-    /**
-     * Validates an application's uploaded documents against the matrix.
-     */
-    static validateSubmission(admissionType, category, uploadedDocuments) {
-        const requiredDocs = this.getRequiredList(admissionType, category);
-        
-        const validUploads = uploadedDocuments.filter(doc => 
-            ['SUBMITTED', 'VERIFIED'].includes(doc.status) && doc.fileKey
-        ).map(doc => doc.documentType);
+    static validateSubmission(admissionType, category, uploadedDocuments = []) {
 
-        const missingDocs = requiredDocs.filter(req => !validUploads.includes(req));
+        const requiredDocs = this.getRequiredList(
+            admissionType,
+            category
+        );
 
-        // 🟢 Return an object instead of throwing a fatal error
+        const validUploads = uploadedDocuments
+            .filter(doc =>
+                ['SUBMITTED', 'VERIFIED'].includes(doc.status)
+                && doc.fileKey
+            )
+            .map(doc => doc.documentType);
+
+        const missingDocs = requiredDocs.filter(
+            req => !validUploads.includes(req)
+        );
+
         return {
             isValid: missingDocs.length === 0,
-            missingDocs: missingDocs
+            missingDocs
         };
     }
 }

@@ -116,8 +116,7 @@ class AdmissionsUseCase {
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(parseInt(limit))
-                .populate('appliedGradeId', 'name')
-                .populate('preferredSectionId', 'name'),
+                .populate('appliedGradeId', 'name'),
             Application.countDocuments(query)
         ]);
 
@@ -137,11 +136,11 @@ class AdmissionsUseCase {
         let finalStatus = 'SUBMITTED';
 
         try {
-            if (payload.studentProfile && payload.studentProfile.nationalIdEncrypted) {
+            if (payload.studentProfile && payload.studentProfile.aadhaarEncrypted) {
                 // Ensure you have added `findOne` to your ApplicationRepo!
                 const existingApp = await ApplicationRepo.findOne(schoolId, {
                     academicYearId: payload.academicYearId,
-                    'studentProfile.nationalIdEncrypted': payload.studentProfile.nationalIdEncrypted
+                    'studentProfile.aadhaarEncrypted': payload.studentProfile.aadhaarEncrypted
                 }, session);
 
                 if (existingApp) {
@@ -177,10 +176,7 @@ class AdmissionsUseCase {
             //  NEW: File Ownership Security Check
             if (payload.documents && payload.documents.length > 0) {
                 for (const doc of payload.documents) {
-                    // Prevent path traversal and enforce tenant isolation
-                    // A valid fileKey from our S3 service MUST start with the schoolId
-                    // Change this line:
-                    if (!doc.fileKey.startsWith(`schools/${schoolId}/`)) {
+                    if (doc.fileKey && !doc.fileKey.startsWith(`schools/${schoolId}/`)) {
                         throw new Error(`Security Violation: File ${doc.fileKey} does not belong to this tenant.`);
                     }
                 }
@@ -362,7 +358,7 @@ class AdmissionsUseCase {
             if (typeof WorkflowEngine !== 'undefined' && WorkflowEngine.validateTransition) {
                 WorkflowEngine.validateTransition('APPLICATION', app.status, 'ENROLLED', actorRole);
             }
-            
+
             const studentCategory = app.studentProfile?.category || 'GENERAL';
 
             await SeatEngine.releaseSeat(
@@ -387,7 +383,7 @@ class AdmissionsUseCase {
             if (typeof IdentityEngine !== 'undefined' && IdentityEngine.generateSequence) {
                 enrollmentNumber = await IdentityEngine.generateSequence(schoolId, 'STU', year, session);
             } else {
-                enrollmentNumber = `STU-${year}-${Date.now().toString().slice(-6)}`; 
+                enrollmentNumber = `STU-${year}-${Date.now().toString().slice(-6)}`;
             }
 
             const newStudentArray = await StudentRepo.create([{
@@ -397,8 +393,8 @@ class AdmissionsUseCase {
                 academicYearId: app.academicYearId,
                 gradeId: app.appliedGradeId,
                 profile: app.studentProfile,
-                guardianLinks: app.guardians, 
-                status: 'ACTIVE' 
+                guardianLinks: app.guardians,
+                status: 'ACTIVE'
             }], { session });
 
             const newStudent = newStudentArray[0];
@@ -415,10 +411,10 @@ class AdmissionsUseCase {
             const oldStatus = app.status;
             app.status = 'ENROLLED';
             app.enrolledStudentId = newStudent._id;
-            
+
             if (!app.lifecycle) app.lifecycle = {};
             app.lifecycle.enrolledAt = new Date();
-            
+
             await app.save({ session });
 
             if (typeof AuditEngine !== 'undefined' && AuditEngine.log) {
@@ -433,9 +429,9 @@ class AdmissionsUseCase {
 
             await session.commitTransaction();
 
-            return { 
-                applicationNumber: app.applicationNumber, 
-                enrollmentNumber: newStudent.enrollmentNumber 
+            return {
+                applicationNumber: app.applicationNumber,
+                enrollmentNumber: newStudent.enrollmentNumber
             };
 
         } catch (error) {
@@ -491,7 +487,7 @@ class AdmissionsUseCase {
         }
     }
 
-    // 🟢 NEW: Update Application Details before Enrollment
+    // NEW: Update Application Details before Enrollment
     static async updateApplicationData(schoolId, applicationId, payload, actorId) {
         try {
             const app = await ApplicationRepo.findById(schoolId, applicationId);

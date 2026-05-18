@@ -4,10 +4,10 @@ const sectionSchema = new mongoose.Schema({
   schoolId: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true, index: true },
   academicYearId: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicYear', required: true },
   gradeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Grade', required: true },
-  roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true }, // 🟢 Links to physical infrastructure
+  roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true }, // Links to physical infrastructure
   
   name: { type: String, required: true }, // e.g., 'A', 'B', 'Rose'
-  targetCapacity: { type: Number, required: true }, // 🟢 Must be <= room.capacity
+  targetCapacity: { type: Number, required: true }, // Must be <= room.capacity
   
   classTeacherId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });

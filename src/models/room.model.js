@@ -5,7 +5,7 @@ const roomSchema = new mongoose.Schema({
   
   roomNumber: { type: String, required: true }, // e.g., "101A", "Lab-2"
   capacity: { type: Number, required: true }, // Maximum physical chairs
-  building: { type: String }, // e.g., "West Block", "Main Wing"
+  building: { type: String, required: true, default:"main" }, // e.g., "West Block", "Main Wing"
   
   roomType: {
     type: String,
