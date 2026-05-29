@@ -71,6 +71,13 @@ const updateApplicationStatus = async (req, res) => {
         const result = await AdmissionsUseCase.updateStatus(req.user.schoolId, req.params.id, status, remarks, req.user.id, req.user.role);
         res.status(200).json({ success: true, data: result });
     } catch (error) {
+        // Mongoose VersionError = someone else modified this document
+        if (error.name === 'VersionError') {
+            return res.status(409).json({
+                success: false,
+                message: "Conflict: This application was modified by another user. Please refresh and try again."
+            });
+        }
         res.status(400).json({ success: false, message: error.message });
     }
 };
@@ -206,9 +213,17 @@ const updateApplication = async (req, res) => {
         );
         res.status(200).json({ success: true, data: result, message: "Application updated successfully" });
     } catch (error) {
+        if (error.name === 'VersionError') {
+            return res.status(409).json({
+                success: false,
+                message: "Conflict: This application was modified by another user. Please refresh and try again."
+            });
+        }
         res.status(400).json({ success: false, message: error.message });
     }
 };
+
+
 
 module.exports = {
     getUploadUrl,

@@ -2,6 +2,9 @@ const MasterDataService = require('./masterData.service');
 const Section = require('../../models/section.model');
 const SeatInventory = require('../../models/seatInventory.model');
 const Room = require('../../models/room.model');
+const Grade = require('../../models/grade.model');
+const AcademicYear = require('../../models/academicYear.model');
+
 
 const addAcademicYear = async (req, res) => {
     try {
@@ -17,11 +20,11 @@ const getRoomMetadata = async (req, res) => {
     try {
         // We reach into the Mongoose schema to get the enum values
         const roomTypes = Room.schema.path('roomType').enumValues;
-        
+
         // We can also format them for the UI (e.g., "STANDARD_CLASSROOM" -> "Standard Classroom")
         const formattedTypes = roomTypes.map(type => ({
             value: type,
-            label: type.split('_').map(word => 
+            label: type.split('_').map(word =>
                 word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
             ).join(' ')
         }));
@@ -84,6 +87,18 @@ const addSection = async (req, res) => {
             throw new Error("Validation Error: Selected Room does not exist.");
         }
 
+        // Validate grade belongs to this school
+        const grade = await Grade.findOne({ _id: gradeId, schoolId });
+        if (!grade) {
+            throw new Error("Validation Error: Selected Grade does not exist for this school.");
+        }
+
+        // Validate academic year belongs to this school
+        const academicYear = await AcademicYear.findOne({ _id: academicYearId, schoolId });
+        if (!academicYear) {
+            throw new Error("Validation Error: Selected Academic Year does not exist for this school.");
+        }
+
         if (targetCapacity > room.capacity) {
             throw new Error(`Infrastructure Error: Target capacity (${targetCapacity}) exceeds the physical capacity of Room ${room.roomNumber} (${room.capacity} seats).`);
         }
@@ -116,7 +131,7 @@ const addSeatInventory = async (req, res) => {
 
         // 1. FETCH ALL SECTIONS FOR THIS GRADE AND SUM THEIR CAPACITIES
         const sectionsInGrade = await Section.find({ gradeId, schoolId, academicYearId });
-        
+
         if (!sectionsInGrade || sectionsInGrade.length === 0) {
             throw new Error("Validation Error: Please create at least one Section for this Grade before configuring Seat Inventory.");
         }
@@ -145,7 +160,7 @@ const addSeatInventory = async (req, res) => {
             schoolId,
             academicYearId,
             gradeId,
-            totalCapacity: totalGradeCapacity, 
+            totalCapacity: totalGradeCapacity,
             allowSpillover,
             quotas
         });
@@ -183,6 +198,122 @@ const fetchSeatInventories = async (req, res) => {
     }
 };
 
+const getSeatInventoryById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const inventory = await SeatInventory.findOne({
+            _id: id,
+            schoolId: req.user.schoolId
+        })
+            .populate('gradeId', 'name level')
+            .populate('academicYearId', 'name');
+
+        if (!inventory) {
+            return res.status(404).json({
+                success: false,
+                message: 'Seat inventory not found.'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: inventory
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getSeatMetrics = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const inventory = await SeatInventory.findOne({
+            _id: id,
+            schoolId: req.user.schoolId
+        })
+            .populate('gradeId', 'name level')
+            .populate('academicYearId', 'name');
+
+        if (!inventory) {
+            return res.status(404).json({
+                success: false,
+                message: 'Seat inventory not found.'
+            });
+        }
+
+        let totalConsumed = 0;
+        let totalBlocked = 0;
+
+        const quotaDetails = [];
+
+        if (inventory.quotas) {
+
+            for (const [category, data] of Object.entries(inventory.quotas)) {
+
+                const consumed = data.consumedSeats || 0;
+                const blocked = data.blockedSeats || 0;
+                const capacity = data.capacity || 0;
+
+                totalConsumed += consumed;
+                totalBlocked += blocked;
+
+                quotaDetails.push({
+                    category,
+                    capacity,
+                    consumed,
+                    blocked,
+                    available: capacity - (consumed + blocked)
+                });
+            }
+        }
+
+        const totalAvailable =
+            inventory.totalCapacity - (totalConsumed + totalBlocked);
+
+        const metrics = {
+            inventoryId: inventory._id,
+
+            grade: inventory.gradeId,
+
+            academicYear: inventory.academicYearId,
+
+            totalCapacity: inventory.totalCapacity,
+
+            overall: {
+                consumed: totalConsumed,
+                blocked: totalBlocked,
+                available: totalAvailable,
+
+                occupancyRate:
+                    inventory.totalCapacity > 0
+                        ? (
+                            (totalConsumed / inventory.totalCapacity) * 100
+                        ).toFixed(2) + '%'
+                        : '0%'
+            },
+
+            quotas: quotaDetails
+        };
+
+        res.status(200).json({
+            success: true,
+            data: metrics
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 module.exports = {
     addRoom,
     addAcademicYear,
@@ -194,5 +325,7 @@ module.exports = {
     fetchGrades,
     fetchRooms,
     fetchSections,
-    fetchSeatInventories 
+    fetchSeatInventories,
+    getSeatInventoryById,
+    getSeatMetrics
 };

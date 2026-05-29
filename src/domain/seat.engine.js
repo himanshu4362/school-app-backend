@@ -49,7 +49,7 @@ class SeatEngine {
             { $inc: { [`${quotaPath}.blockedSeats`]: 1 } },
             { returnDocument: 'after', session }
         );
-        
+
         if (result) return { success: true, blockedCategory: category };
 
         // 2. SPILLOVER: Try to block in GENERAL
@@ -73,11 +73,25 @@ class SeatEngine {
         category = String(category).toUpperCase();
         const fieldToDecrement = releaseType === 'BLOCKED' ? `quotas.${category}.blockedSeats` : `quotas.${category}.consumedSeats`;
 
-        await SeatInventory.findOneAndUpdate(
+        const result = await SeatInventory.findOneAndUpdate(
             { schoolId, academicYearId, gradeId, [fieldToDecrement]: { $gt: 0 } },
             { $inc: { [fieldToDecrement]: -1 } },
-            { session }
+            { new: true, session }
         );
+
+        // If primary category release failed, try GENERAL (spillover reversal)
+        if (!result && category !== 'GENERAL') {
+            const generalField = releaseType === 'BLOCKED' ? 'quotas.GENERAL.blockedSeats' : 'quotas.GENERAL.consumedSeats';
+            const spilloverResult = await SeatInventory.findOneAndUpdate(
+                { schoolId, academicYearId, gradeId, [generalField]: { $gt: 0 } },
+                { $inc: { [generalField]: -1 } },
+                { returnDocument: 'after', session }
+            );
+
+            if (!spilloverResult) {
+                throw new Error(`Seat Release Error: No ${releaseType.toLowerCase()} seats found to release for category ${category} or GENERAL.`);
+            }
+        }
     }
 }
 

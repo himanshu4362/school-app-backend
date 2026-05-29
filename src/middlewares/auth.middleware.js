@@ -20,4 +20,21 @@ const protect = (req, res, next) => {
     }
 };
 
-module.exports = { protect };
+const roleGuard = (...allowedRoles) => {
+    return (req, res, next) => {
+        if (!req.user || !req.user.role) {
+            return res.status(403).json({ success: false, message: "Access denied. No role assigned." });
+        }
+
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                message: `Access denied. Required role: ${allowedRoles.join(' or ')}. Your role: ${req.user.role}.`
+            });
+        }
+
+        next();
+    };
+};
+
+module.exports = { protect, roleGuard };

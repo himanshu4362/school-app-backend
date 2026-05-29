@@ -1,17 +1,31 @@
 const AcademicYear = require('../../models/academicYear.model');
 const Grade = require('../../models/grade.model');
+const mongoose = require('mongoose');
 
 // --- ACADEMIC YEAR LOGIC ---
 const createAcademicYear = async (schoolId, payload) => {
-    // If setting this to active, deactivate all others for this school
-    if (payload.isActive) {
-        await AcademicYear.updateMany({ schoolId }, { isActive: false });
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        // If setting this to active, deactivate all others atomically
+        if (payload.isActive) {
+            await AcademicYear.updateMany({ schoolId }, { isActive: false }, { session });
+        }
+
+        const result = await AcademicYear.create([{
+            schoolId,
+            ...payload
+        }], { session });
+
+        await session.commitTransaction();
+        return result[0]; // .create() with session returns an array
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
     }
-    
-    return await AcademicYear.create({
-        schoolId,
-        ...payload
-    });
 };
 
 const getAcademicYears = async (schoolId) => {

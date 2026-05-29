@@ -16,6 +16,14 @@ const DocumentEngine = require('../../domain/document.engine');
 
 class AdmissionsUseCase {
 
+    static LEAD_TRANSITIONS = {
+        new: ['contacted', 'closed'],
+        contacted: ['follow_up', 'converted', 'closed'],
+        follow_up: ['converted', 'closed', 'contacted'],
+        converted: [],
+        closed: ['new', 'contacted']
+    };
+
     static async captureLead(schoolId, leadData, userId) {
         // Initial activity log
         const initialActivity = {
@@ -75,7 +83,10 @@ class AdmissionsUseCase {
         const lead = await Lead.findOne({ _id: leadId, schoolId });
         if (!lead) throw new Error("Lead not found.");
 
-        const allowedNextStates = VALID_TRANSITIONS[lead.status];
+        const allowedNextStates = AdmissionsUseCase.LEAD_TRANSITIONS[lead.status];
+        if (!allowedNextStates) {
+            throw new Error(`Workflow Error: Unknown lead status '${lead.status}'.`);
+        }
         if (!allowedNextStates.includes(newStatus)) {
             throw new Error(`Invalid CRM Workflow: Cannot move lead from '${lead.status}' to '${newStatus}'.`);
         }
@@ -182,17 +193,6 @@ class AdmissionsUseCase {
                 }
             }
 
-            //  NEW: Execute Document Requirement Engine
-            if (payload.admissionType === 'transfer' || payload.admissionType === 'fresh') {
-                DocumentEngine.validateSubmission(
-                    payload.admissionType,
-                    payload.studentProfile?.category || 'GENERAL',
-                    payload.documents || []
-                );
-            }
-
-            let finalStatus = 'SUBMITTED';
-
             if (payload.admissionType === 'transfer' || payload.admissionType === 'fresh') {
                 const docValidation = DocumentEngine.validateSubmission(
                     payload.admissionType,
@@ -263,9 +263,9 @@ class AdmissionsUseCase {
             }
             // Seat Release Logic (Including DOCUMENT_PENDING)
             else if (['REJECTED', 'WITHDRAWN', 'EXPIRED', 'DOCUMENT_PENDING'].includes(targetStatus) && oldStatus === 'APPROVED') {
-                
+
                 // Clear approval timestamp on rollback
-                app.lifecycle.approvedAt = undefined; 
+                app.lifecycle.approvedAt = undefined;
 
                 await SeatEngine.releaseSeat(
                     schoolId,
@@ -415,7 +415,7 @@ class AdmissionsUseCase {
 
             const oldStatus = app.status;
             app.status = 'ENROLLED';
-            app.enrolledStudentId = newStudent._id;
+            app.convertedStudentId = newStudent._id;
 
             if (!app.lifecycle) app.lifecycle = {};
             app.lifecycle.enrolledAt = new Date();
@@ -583,14 +583,5 @@ class AdmissionsUseCase {
         }
     }
 }
-
-// STATUS FLOW VALIDATION MACHINE
-const VALID_TRANSITIONS = {
-    new: ['contacted', 'closed'],
-    contacted: ['follow_up', 'converted', 'closed'],
-    follow_up: ['converted', 'closed', 'contacted'],
-    converted: [],
-    closed: ['new', 'contacted']
-};
 
 module.exports = AdmissionsUseCase;
