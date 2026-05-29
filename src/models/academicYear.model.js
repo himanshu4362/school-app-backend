@@ -8,7 +8,10 @@ const academicYearSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: false }, // Only one should be active at a time
 }, { timestamps: true });
 
-// Ensure a school can't have duplicate academic year names
-academicYearSchema.index({ schoolId: 1, name: 1 }, { unique: true });
+// DB-level guarantee: only one active academic year per school (concurrency safe)
+academicYearSchema.index(
+  { schoolId: 1, isActive: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } }
+);
 
 module.exports = mongoose.model('AcademicYear', academicYearSchema);
