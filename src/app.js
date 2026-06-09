@@ -8,8 +8,19 @@ const admissionsRoutes = require('./features/admissions/admissions.routes');
 
 const app = express()
 
+const allowedOrigins = [`${process.env.FRONTEND_URL}`, `${process.env.FRONTEND_URL2}`]
+
 app.use(cors({
-    origin: `${process.env.FRONTEND_URL}`,
+    origin: (origin, callback) => {
+        // allow requests with no origin (postman/mobile apps)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
     credentials: true
 }));
 app.use(express.json());
